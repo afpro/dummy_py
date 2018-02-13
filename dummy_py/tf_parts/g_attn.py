@@ -1,4 +1,4 @@
-from typing import Union, List, TYPE_CHECKING
+from typing import Union, Iterable, TYPE_CHECKING
 
 import numpy as np
 import tensorflow as tf
@@ -50,6 +50,14 @@ def normalization(x, name=None):
 
 
 def sub_layer(fn, x, *other_inputs, name=None, extra=None):
+    """
+    :param fn: sub layer body
+    :param x: input x
+    :param other_inputs: other input, not used as residual
+    :param name: operator name
+    :param extra: extra param for fn
+    :return: batch_norm(x + fn(x))
+    """
     with NameScope(name, 'sl', [x, *other_inputs]):
         return batch_norm(x + fn(x, *other_inputs, **non_or(extra, dict)))
 
@@ -63,9 +71,15 @@ def multi_head_attention(q: 'tf_input',
                          name: 'str' = None,
                          dtype: 'tf.DType' = tf.float32):
     """
-    q: query    [B, Tq,  Dq]
-    k: key      [B, Tkv, Dk]
-    v: value    [B, Tkv, Dv]
+    :param q: query    [B, Tq,  Dq]
+    :param k: key      [B, Tkv, Dk]
+    :param v: value    [B, Tkv, Dv]
+    :param d_model: see paper
+    :param n_head: see paper
+    :param attn_mask: attention mask, [B, Tq, Dq] (support broadcast), for avoid decoder forward depends
+    :param name: operator name
+    :param dtype: data dtype, default float32
+    :return: see paper
     """
     with NameScope(name, 'mha', [q, k, v]) as scope:
         qk_same = q is k
@@ -120,6 +134,13 @@ def multi_head_attention(q: 'tf_input',
 def feed_forward(x: 'tf.Tensor',
                  num_units: 'int' = None,
                  name: 'str' = None, dtype: 'tf.DType' = None):
+    """
+    :param x: input
+    :param num_units: output size
+    :param name: operator name
+    :param dtype: data type, default to input dtype
+    :return: max(0, x*w0+b0)*w1 + b1
+    """
     with NameScope(name, 'ff', [x]) as scope:
         x = tf.convert_to_tensor(x, dtype)
         if num_units is None:
@@ -133,26 +154,61 @@ def encoder(x: 'tf_input',
             n_head: 'int',
             n_stack: 'int',
             d_model: 'int',
-            context: 'List[tf_input]' = None,
+            context: 'Iterable[tf_input]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
+    """
+    encoder, input size and pos encoding size must be d_model
+
+    :param x: input (eg. word embedding), [Batch, TimeStep, d_model]
+    :param pos_encoding: pos encoding, could be learned or sin/cos curve, same shape as input(support broadcast)
+    :param n_head: see paper
+    :param n_stack: see paper
+    :param d_model: see paper
+    :param context: previous step data, from return value
+    :param name: operator name
+    :param dtype: data type, default float32
+    :return: (encoder result, current context)
+    """
     with NameScope(name, 'encoder', [x, pos_encoding] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
-        v = x + pos_encoding
-        v_list = []
-        if context is not None:
-            assert len(context) == n_stack
-            context = [tf.convert_to_tensor(_, dtype) for _ in context]
-        for i in range(n_stack):
-            v_list.append(v)
-            self_attn_q = v
-            self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
-            v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
-                          name='stack_{}_sa'.format(i),
-                          extra={'dtype': dtype})
-            v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
-        return v, v_list
+
+        def control_dependencies():
+            x_shape = tf.shape(x)
+            x_dims = tf.shape(x_shape)
+            yield tf.assert_equal(x_dims, [3])
+            yield tf.assert_equal(x_shape[2], d_model)
+
+            pe_shape = tf.shape(pos_encoding)
+            pe_dims = tf.shape(pe_shape)
+            yield tf.assert_equal(pe_dims, [3])
+
+            yield tf.Assert(tf.logical_or(tf.equal(pe_shape[0], x_shape[0]),
+                                          tf.equal(pe_shape[0], 1)),
+                            [pe_dims])
+            yield tf.Assert(tf.logical_or(tf.equal(pe_shape[1], x_shape[1]),
+                                          tf.equal(pe_shape[1], 1)),
+                            [pe_dims])
+            yield tf.Assert(tf.logical_or(tf.equal(pe_shape[2], x_shape[2]),
+                                          tf.equal(pe_shape[2], 1)),
+                            [pe_dims])
+
+        with tf.control_dependencies(list(control_dependencies())):
+            v = x + pos_encoding
+            v_list = []
+            if context is not None:
+                context = [tf.convert_to_tensor(_, dtype) for _ in context]
+                assert len(context) == n_stack
+            for i in range(n_stack):
+                v_list.append(v)
+                self_attn_q = v
+                self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
+                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
+                              name='stack_{}_sa'.format(i),
+                              extra={'dtype': dtype})
+                v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
+    return v, v_list
 
 
 def decoder(x: 'tf_input',
@@ -162,28 +218,68 @@ def decoder(x: 'tf_input',
             n_stack: 'int',
             d_model: 'int',
             attn_mask: 'tf_input' = None,
-            context: 'List[tf_input]' = None,
+            context: 'Iterable[tf_input]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
+    """
+    :param x: input (eg. word embedding), [Batch, TimeStep, d_model]
+    :param pos_encoding: pos encoding, could be learned or sin/cos curve, same shape as input(support broadcast)
+    :param encoder_output: encoder output, [Batch, EncoderTimeStep, EncoderDModel]
+    :param n_head: see paper
+    :param n_stack: see paper
+    :param d_model: see paper
+    :param context: previous step data, from return value
+    :param attn_mask: attn mask for self attention, see multi_head_attention method
+    :param name: operator name
+    :param dtype: data type, default float32
+    :return: (decoder result, current context)
+    """
     with NameScope(name, 'decoder', [x, pos_encoding, attn_mask] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
         encoder_output = tf.convert_to_tensor(encoder_output, dtype)
+
+        def control_dependencies():
+            x_shape = tf.shape(x)
+            x_dims = tf.shape(x_shape)
+            yield tf.assert_equal(x_dims, [3])
+            yield tf.assert_equal(x_shape[2], d_model)
+
+            pe_shape = tf.shape(pos_encoding)
+            pe_dims = tf.shape(pe_shape)
+            yield tf.assert_equal(pe_dims, [3])
+
+            yield tf.Assert(tf.logical_or(tf.equal(pe_shape[0], x_shape[0]),
+                                          tf.equal(pe_shape[0], 1)),
+                            [pe_dims])
+            yield tf.Assert(tf.logical_or(tf.equal(pe_shape[1], x_shape[1]),
+                                          tf.equal(pe_shape[1], 1)),
+                            [pe_dims])
+            yield tf.Assert(tf.logical_or(tf.equal(pe_shape[2], x_shape[2]),
+                                          tf.equal(pe_shape[2], 1)),
+                            [pe_dims])
+
+            eo_shape = tf.shape(encoder_output)
+            eo_dims = tf.shape(eo_shape)
+            yield tf.equal(eo_dims, 3)
+            yield tf.equal(eo_shape[0], x_shape[0])
+
         if context is not None:
-            assert len(context) == n_stack
             context = [tf.convert_to_tensor(_, dtype) for _ in context]
-        v = x + pos_encoding
-        v_list = []
-        for i in range(n_stack):
-            v_list.append(v)
-            self_attn_q = v
-            self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
-            v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
-                          name='stack_{}_sa'.format(i),
-                          extra={'attn_mask': attn_mask,
-                                 'dtype': dtype})
-            v = sub_layer(multi_head_attention, v, encoder_output, encoder_output, d_model, n_head,
-                          name='stack_{}_a'.format(i),
-                          extra={'dtype': dtype})
-            v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
-        return v, v_list
+            assert len(context) == n_stack
+        with tf.control_dependencies(list(control_dependencies())):
+            v = x + pos_encoding
+            v_list = []
+            for i in range(n_stack):
+                v_list.append(v)
+                self_attn_q = v
+                self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
+                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
+                              name='stack_{}_sa'.format(i),
+                              extra={'attn_mask': attn_mask,
+                                     'dtype': dtype})
+                v = sub_layer(multi_head_attention, v, encoder_output, encoder_output, d_model, n_head,
+                              name='stack_{}_a'.format(i),
+                              extra={'dtype': dtype})
+                v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
+    return v, v_list

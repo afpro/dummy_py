@@ -1,6 +1,8 @@
+import typing
+
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.rnn import LSTMCell, MultiRNNCell
+from tensorflow.contrib.rnn import RNNCell, LSTMCell, MultiRNNCell
 
 __all__ = [
     'rnn_cell',
@@ -13,19 +15,44 @@ __all__ = [
 ]
 
 
-def rnn_cell(hiddens, cell_fn=LSTMCell):
+def rnn_cell(hiddens: 'typing.Iterable[int]', cell_fn: 'typing.Type[RNNCell]' = LSTMCell):
+    """
+    create multi layer rnn cell
+
+    :param hiddens: hidden sizes
+    :param cell_fn: rnn cell type or rnn cell factory
+    :return:
+    """
     return MultiRNNCell([cell_fn(hidden) for hidden in hiddens])
 
 
-def broadcast_matmul(x, y):
+def broadcast_matmul(x: 'tf.Tensor', y: 'tf.Tensor'):
+    """
+    broadcast matmul x and y
+    for example, x with shape [A, B, C, D, E, F], y with shape [F, G]
+    result is a matrix with shape [A, B, C, D, E, G]
+
+    :param x: mat x
+    :param y: mat y
+    :return: matmul(x, y)
+    """
     x_shape = tf.shape(x)
     y_shape = tf.shape(y)
     v = tf.matmul(tf.reshape(x, (-1, x_shape[-1])), y)
     return tf.reshape(v, shape=tf.concat((x_shape[:-1], y_shape[-1:]), axis=0))
 
 
-def embedding(ids, in_size, out_size, name=None):
-    with tf.variable_scope(name, default_name='embedding', values=[ids]):
+def embedding(ids, in_size, out_size, name=None, reuse=None):
+    """
+    create a embedding lookup param and do embedding lookup
+    :param ids: embedding lookup id
+    :param in_size: id range
+    :param out_size: output vector size
+    :param name: variable scope name
+    :param reuse: reuse variable
+    :return: embedding lookup result
+    """
+    with tf.variable_scope(name, default_name='embedding', values=[ids], reuse=reuse):
         return tf.nn.embedding_lookup(
             params=tf.get_variable(name='param',
                                    dtype=tf.float32,
@@ -34,7 +61,16 @@ def embedding(ids, in_size, out_size, name=None):
             name='output')
 
 
-def cross_entropy(logits, labels, seq_len, name=None):
+def cross_entropy(logits: 'tf.Tensor', labels: 'tf.Tensor', seq_len: 'tf.Tensor', name=None):
+    """
+    calculate cross entropy with sequence length support
+
+    :param logits: logits, as [Batch, TimeStep, NClass]
+    :param labels: labels, as [Batch, TimeStep]
+    :param seq_len: sequence length, as [Batch]
+    :param name: operator name
+    :return: cross entropy sum
+    """
     with tf.name_scope(name, default_name='cross_entropy', values=[logits, labels, seq_len]):
         """ return (sum entropy , mean entropy) """
         return CrossEntropyLoop.run(
@@ -55,7 +91,13 @@ def attention(query, w, key):
     return attn_vec
 
 
-def softmax(a):
+def softmax(a: 'np.ndarray'):
+    """
+    calculate softmax with last dim
+
+    :param a: input data
+    :return: softmax result
+    """
     e = np.exp(a - np.max(a, axis=-1, keepdims=True))
     return e / (np.sum(e, axis=-1, keepdims=True) + 1e-9)
 
@@ -92,24 +134,62 @@ class DictToProperty:
 
 
 class Loop:
+    """
+    abstraction for tf.while_loop
+
+    args and extra could be used as dict or visit data as property
+    """
+
     @classmethod
     def loop_vars(cls, extra):
+        """
+        :param extra: extra from invoke method
+        :return: a dict[str, tf.Tensor]
+        """
         raise NotImplementedError
 
     @classmethod
     def loop_cond(cls, args, extra):
+        """
+        loop cond, quit loop with return false tensor
+
+        :param args: dict[str, tf.Tensor] from loop_vars
+        :param extra: extra from invoke method
+        :return: tf.Tensor with bool type, () shape, quit loop with false value
+        """
         raise NotImplementedError
 
     @classmethod
     def loop_body(cls, args, extra):
+        """
+        loop body
+
+        :param args: dict[str, tf.Tensor] from loop_vars
+        :param extra: extra from invoke method
+        :return: dict[str, tf.Tensor], each entry in this dict will reflect on args
+        """
         raise NotImplementedError
 
     @classmethod
     def reduce_result(cls, args, extra):
+        """
+        after loop finished, reduce args and extras as result for invoke method
+
+        :param args: dict[str, tf.Tensor] from loop_vars
+        :param extra: extra from invoke method
+        :return: anything you want invoke method return
+        """
         return args
 
     @classmethod
     def invoke(cls, extra=None, name=None, debug=False):
+        """
+        :param extra: a dict with extra data for while loop
+        :param name: operator name
+        :param debug: with debug on, while loop parallel is disabled
+        :return: result from reduce_result
+        """
+
         extra = DictToProperty.wrap(extra)
 
         loop_var_dict = cls.loop_vars(extra)
@@ -143,6 +223,9 @@ class Loop:
 
 
 class CrossEntropyLoop(Loop):
+    """
+    a loop for calculate cross entropy. could be a tutorial for Loop class
+    """
     @classmethod
     def loop_vars(cls, extra):
         return {
