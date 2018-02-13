@@ -2,9 +2,13 @@ from typing import Union, List, TYPE_CHECKING
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.layers import batch_norm
 
 __all__ = [
+    'sub_layer',
     'multi_head_attention',
+    'encoder',
+    'decoder',
 ]
 
 if TYPE_CHECKING:
@@ -47,7 +51,7 @@ def normalization(x, name=None):
 
 def sub_layer(fn, x, *other_inputs, name=None, extra=None):
     with NameScope(name, 'sl', [x, *other_inputs]):
-        return normalization(x + fn(x, *other_inputs, **non_or(extra, dict)))
+        return batch_norm(x + fn(x, *other_inputs, **non_or(extra, dict)))
 
 
 def multi_head_attention(q: 'tf_input',
