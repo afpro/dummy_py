@@ -14,7 +14,7 @@ def load(session, saver, save_path):
 
     latest_checkpoint = tf.train.latest_checkpoint(save_dir, '{}.ckpt'.format(save_name))
     if latest_checkpoint is None:
-        print(f'no checkpoint found')
+        print('no checkpoint found')
         return False
     saver.restore(session, latest_checkpoint)
     print('restored {}'.format(latest_checkpoint))
