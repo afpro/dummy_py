@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='dummy_py',
-    version='1.1',
+    version='1.2',
     packages=find_packages(),
     url='https://github.com/afpro/dummy_py',
     license='Apache',
