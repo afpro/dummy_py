@@ -58,8 +58,10 @@ def sub_layer(fn, x, *other_inputs, name=None, extra=None):
     :param extra: extra param for fn
     :return: batch_norm(x + fn(x))
     """
-    with NameScope(name, 'sl', [x, *other_inputs]):
-        return batch_norm(x + fn(x, *other_inputs, **non_or(extra, dict)))
+    with NameScope(name, 'sl', [x, *other_inputs]) as scope:
+        after_residual = x + fn(x, *other_inputs, **non_or(extra, dict))
+        with scope.var_scope():
+            return batch_norm(after_residual)
 
 
 def multi_head_attention(q: 'tf_input',
