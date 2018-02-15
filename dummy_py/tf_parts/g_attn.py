@@ -2,13 +2,15 @@ from typing import Union, Iterable, TYPE_CHECKING
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.layers import batch_norm
+from tensorflow.python.layers.normalization import batch_norm
 
 __all__ = [
     'sub_layer',
     'multi_head_attention',
     'encoder',
     'decoder',
+    'get_decoder_self_attn_mask',
+    'get_pos_encoding',
 ]
 
 if TYPE_CHECKING:
@@ -44,11 +46,6 @@ def non_or(v, ctor):
     return ctor
 
 
-def normalization(x, name=None):
-    with NameScope(name, 'norm', [x]):
-        return x / tf.sqrt(tf.reduce_sum(tf.square(x), axis=-1, keep_dims=True))
-
-
 def sub_layer(fn, x, *other_inputs, name=None, extra=None):
     """
     :param fn: sub layer body
@@ -78,7 +75,7 @@ def multi_head_attention(q: 'tf_input',
     :param v: value    [B, Tkv, Dv]
     :param d_model: see paper
     :param n_head: see paper
-    :param attn_mask: attention mask, [B, Tq, Dq] (support broadcast), for avoid decoder forward depends
+    :param attn_mask: attention mask, [B, Tq, Tkv] (support broadcast), for avoid decoder forward depends
     :param name: operator name
     :param dtype: data dtype, default float32
     :return: see paper
@@ -126,7 +123,8 @@ def multi_head_attention(q: 'tf_input',
             qk_n_head = tf.matmul(q_n_head, k_n_head, transpose_b=True)  # [B * n_head, Tq, Tkv]
             attn_n_head = tf.nn.softmax(qk_n_head / (d_model ** 0.5))
             if attn_mask is not None:
-                attn_n_head = normalization(attn_n_head * attn_mask)
+                attn_n_head = attn_n_head * attn_mask
+                attn_n_head = attn_n_head / (tf.reduce_sum(attn_n_head, axis=-1, keep_dims=True) + 1e-6)
             attn_v_n_head = tf.matmul(attn_n_head, v_n_head)  # [B * n_head, Tq, d_model]
             attn_v = tf.concat(tf.split(attn_v_n_head, n_head, axis=0), axis=-1)
             with scope.var_scope():
@@ -285,3 +283,27 @@ def decoder(x: 'tf_input',
                               extra={'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
     return v, v_list
+
+
+def get_decoder_self_attn_mask(t_q: 'int', dtype=np.float32):
+    """
+    get decoder self attention mask
+    :param t_q: decoder query length
+    :param dtype: mask dtype, default float32
+    :return: [t_q, t_q] matrix
+    """
+    return np.transpose(np.triu(np.ones((t_q, t_q), dtype)), (1, 0))
+
+
+def get_pos_encoding(d_model: 'int', pos: 'int', dtype=np.float32):
+    """
+    get pos encoding vector
+    :param d_model: output vector size
+    :param pos: position
+    :param dtype: pos encoding dtype, default float32
+    :return: pos encoding vector, shape (d_model,)
+    """
+    v = np.power(pos / 10000, 2 * np.arange(0, d_model, 1, dtype) / d_model)
+    v[0::2] = np.sin(v[0::2])
+    v[1::2] = np.cos(v[1::2])
+    return v

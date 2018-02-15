@@ -11,6 +11,8 @@ afpro's python library for dummies, include
 common python utils
 
 * lazy property
+* io utils
+* simplify map/filter method as Sequence class
 
 ## `dummy_py.tf_utils`
 
@@ -25,6 +27,7 @@ include tensorflow util codes
 * general attention calculation
 * numpy softmax implements
 * tensorflow while loop abstraction as `Loop` class
+* `tf_session_fn` decorator
 
 ## `dummy_py.tf_parts`
 

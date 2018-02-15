@@ -7,6 +7,7 @@ __all__ = [
     'save',
     'load',
     'gpu_growth_config',
+    'tf_session_fn',
 ]
 
 
@@ -64,3 +65,18 @@ def gpu_growth_config(in_config: 'tf.ConfigProto' = None):
     config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_2
     config.gpu_options.allow_growth = True
     return config
+
+
+def tf_session_fn(f, gpu_growth_session=True):
+    """
+    tensorflow session wrapper, invoke f under seperate graph/session, prepend tf.Session at argument
+    :param f: actual method
+    :param gpu_growth_session: whether or not use gpu growth config
+    :return: wrapped method
+    """
+    def inner(*args, **kwargs):
+        config = gpu_growth_config() if gpu_growth_session else None
+        with tf.Graph().as_default(), tf.Session(config=config) as session:
+            return f(session, *args, **kwargs)
+
+    return inner

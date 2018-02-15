@@ -1,4 +1,12 @@
 class Lazy:
+    """
+    lazy wrapper
+
+    >>> x = 10
+    >>> v = Lazy(lambda: x + 1)
+    >>> v.value
+    11
+    """
     def __init__(self, fn):
         assert callable(fn)
         self._fn = fn
@@ -13,6 +21,19 @@ class Lazy:
 
 
 class LazyProperty:
+    """
+    lazy property
+
+    >>> class Test:
+    >>>     def __init__(self, x):
+    >>>         self._x = x
+    >>>     @LazyProperty
+    >>>     def p(self):
+    >>>         return self._x * 2
+    >>> test = Test(10)
+    >>> test.p
+    20
+    """
     def __init__(self, method):
         self._method = method
         self._name = self._method.__name__
