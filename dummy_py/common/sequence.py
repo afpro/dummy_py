@@ -1,3 +1,5 @@
+from dummy_py.common.take_fn import echo
+
 __all__ = [
     'Sequence',
 ]
@@ -38,20 +40,32 @@ class Sequence:
         """
         return self.map(lambda _: _.strip())
 
+    def _take_result(self, fn):
+        if self._iter is None:
+            raise RuntimeError('result already been taken')
+        v = self._iter
+        if not self._reusable:
+            self._iter = None
+        return fn(v)
+
     def to(self, wrapper=None):
         """
         take all items to collection or something like that
         :param wrapper: could be reduce function or list/tuple etc
         :return: reduced result
         """
-        if self._iter is None:
-            raise RuntimeError('result already been taken')
-        v = self._iter
-        if not self._reusable:
-            self._iter = None
-        if wrapper is not None:
-            v = wrapper(v)
-        return v
+        return self._take_result(echo if wrapper is None else wrapper)
+
+    def for_each(self, fn):
+        """
+        shortcut for for .. in ...: fn(...)
+        """
+
+        def inner(v):
+            for item in v:
+                fn(item)
+
+        self._take_result(inner)
 
     def to_iterator(self):
         return self.to()
@@ -64,3 +78,12 @@ class Sequence:
 
     def to_dict(self):
         return self.to(dict)
+
+    def sum(self, **kwargs):
+        return self.to(lambda _: sum(_, **kwargs))
+
+    def min(self, **kwargs):
+        return self.to(lambda _: max(_, **kwargs))
+
+    def max(self, **kwargs):
+        return self.to(lambda _: max(_, **kwargs))

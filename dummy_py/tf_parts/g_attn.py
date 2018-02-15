@@ -84,31 +84,37 @@ def multi_head_attention(q: 'tf_input',
         qk_same = q is k
         kv_same = k is v
         q = tf.convert_to_tensor(q, dtype)
+        q_shape = tf.shape(q)
         if qk_same:
             k = q
+            k_shape = q_shape
         else:
             k = tf.convert_to_tensor(k, dtype)
+            k_shape = tf.shape(k)
         if kv_same:
             v = k
+            v_shape = k_shape
         else:
             v = tf.convert_to_tensor(v, dtype)
+            v_shape = tf.shape(v)
         if attn_mask is not None:
             attn_mask = tf.convert_to_tensor(attn_mask, dtype)
 
         def control_dependencies():
-            q_shape = tf.shape(q)
             yield tf.assert_equal(tf.shape(q_shape), [3], message="query as 3-D tensor")
 
-            if not qk_same:
-                k_shape = tf.shape(k)
-                yield tf.assert_equal(tf.shape(k_shape), [3], message="key as 3-D tensor")
-                yield tf.assert_equal(q_shape[0], k_shape[0], message="query & key has same batch size (dim[0])")
+            if qk_same:
+                return
 
-                if not kv_same:
-                    v_shape = tf.shape(v)
-                    yield tf.assert_equal(tf.shape(v_shape), [3], message="value as 3-D tensor")
-                    yield tf.assert_equal(k_shape[:-1], v_shape[:-1],
-                                          message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
+            yield tf.assert_equal(tf.shape(k_shape), [3], message="key as 3-D tensor")
+            yield tf.assert_equal(q_shape[0], k_shape[0], message="query & key has same batch size (dim[0])")
+
+            if kv_same:
+                return
+
+            yield tf.assert_equal(tf.shape(v_shape), [3], message="value as 3-D tensor")
+            yield tf.assert_equal(k_shape[:-1], v_shape[:-1],
+                                  message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
 
         with tf.control_dependencies(list(control_dependencies())):
             with scope.var_scope():
@@ -123,7 +129,9 @@ def multi_head_attention(q: 'tf_input',
             qk_n_head = tf.matmul(q_n_head, k_n_head, transpose_b=True)  # [B * n_head, Tq, Tkv]
             attn_n_head = tf.nn.softmax(qk_n_head / (d_model ** 0.5))
             if attn_mask is not None:
-                attn_n_head = attn_n_head * attn_mask
+                attn_n_head = tf.split(attn_n_head, n_head, axis=0)
+                attn_n_head = [_ * attn_mask for _ in attn_n_head]
+                attn_n_head = tf.concat(attn_n_head, axis=0)
                 attn_n_head = attn_n_head / (tf.reduce_sum(attn_n_head, axis=-1, keep_dims=True) + 1e-6)
             attn_v_n_head = tf.matmul(attn_n_head, v_n_head)  # [B * n_head, Tq, d_model]
             attn_v = tf.concat(tf.split(attn_v_n_head, n_head, axis=0), axis=-1)
@@ -155,6 +163,7 @@ def encoder(x: 'tf_input',
             n_stack: 'int',
             d_model: 'int',
             context: 'Iterable[tf_input]' = None,
+            attn_mask: 'tf_input' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
     """
@@ -204,7 +213,7 @@ def encoder(x: 'tf_input',
                 v_list.append(v)
                 self_attn_q = v
                 self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
-                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
+                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head, attn_mask,
                               name='stack_{}_sa'.format(i),
                               extra={'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
@@ -217,7 +226,8 @@ def decoder(x: 'tf_input',
             n_head: 'int',
             n_stack: 'int',
             d_model: 'int',
-            attn_mask: 'tf_input' = None,
+            enc_attn_mask: 'tf_input' = None,
+            dec_attn_mask: 'tf_input' = None,
             context: 'Iterable[tf_input]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
@@ -229,12 +239,13 @@ def decoder(x: 'tf_input',
     :param n_stack: see paper
     :param d_model: see paper
     :param context: previous step data, from return value
-    :param attn_mask: attn mask for self attention, see multi_head_attention method
+    :param enc_attn_mask: attn mask for encoder output, for variant length encoder output
+    :param dec_attn_mask: attn mask for self attention, see multi_head_attention method
     :param name: operator name
     :param dtype: data type, default float32
     :return: (decoder result, current context)
     """
-    with NameScope(name, 'decoder', [x, pos_encoding, attn_mask] + non_or(context, list)):
+    with NameScope(name, 'decoder', [x, pos_encoding, enc_attn_mask, dec_attn_mask] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
         encoder_output = tf.convert_to_tensor(encoder_output, dtype)
@@ -276,11 +287,12 @@ def decoder(x: 'tf_input',
                 self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
                 v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
                               name='stack_{}_sa'.format(i),
-                              extra={'attn_mask': attn_mask,
+                              extra={'attn_mask': dec_attn_mask,
                                      'dtype': dtype})
                 v = sub_layer(multi_head_attention, v, encoder_output, encoder_output, d_model, n_head,
                               name='stack_{}_a'.format(i),
-                              extra={'dtype': dtype})
+                              extra={'attn_mask': enc_attn_mask,
+                                     'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
     return v, v_list
 
@@ -306,4 +318,17 @@ def get_pos_encoding(d_model: 'int', pos: 'int', dtype=np.float32):
     v = np.power(pos / 10000, 2 * np.arange(0, d_model, 1, dtype) / d_model)
     v[0::2] = np.sin(v[0::2])
     v[1::2] = np.cos(v[1::2])
+    return v
+
+
+def batch_pos_encoding(seq_len: 'int', d_model: 'int', dtype=np.float32):
+    """
+    :param seq_len: max sequence len
+    :param d_model: see paper
+    :param dtype: data type, default float32
+    :return: [1, seq_len, d_model] pos encoding
+    """
+    v = np.ndarray(shape=(1, seq_len, d_model), dtype=dtype)
+    for i in range(seq_len):
+        v[0, i, :] = get_pos_encoding(d_model, i, dtype)
     return v

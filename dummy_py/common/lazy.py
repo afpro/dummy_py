@@ -50,9 +50,6 @@ class LazyProperty:
         self._name = self._method.__name__
 
     def __get__(self, instance, owner):
-        if hasattr(instance, self._name):
-            return getattr(instance, self._name)
-
         v = self._method(instance)
         setattr(instance, self._name, v)
         return v
