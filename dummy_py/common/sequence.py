@@ -32,6 +32,12 @@ class Sequence:
         """
         return Sequence(filter(fn, self._iter), self._reusable)
 
+    def strip(self):
+        """
+        shortcut for strip string items
+        """
+        return self.map(lambda _: _.strip())
+
     def to(self, wrapper=None):
         """
         take all items to collection or something like that
