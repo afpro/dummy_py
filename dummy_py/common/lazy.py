@@ -1,3 +1,12 @@
+import numpy as np
+
+__all__ = [
+    'Lazy',
+    'LazyProperty',
+    'LazyMapList',
+]
+
+
 class Lazy:
     """
     lazy wrapper
@@ -7,6 +16,7 @@ class Lazy:
     >>> v.value
     11
     """
+
     def __init__(self, fn):
         assert callable(fn)
         self._fn = fn
@@ -34,6 +44,7 @@ class LazyProperty:
     >>> test.p
     20
     """
+
     def __init__(self, method):
         self._method = method
         self._name = self._method.__name__
@@ -45,3 +56,36 @@ class LazyProperty:
         v = self._method(instance)
         setattr(instance, self._name, v)
         return v
+
+
+class _FakeLazy:
+    def __init__(self, v):
+        self.value = v
+
+
+class LazyMapList:
+    """
+    lazy map source list to target list with map_fn
+
+    >>> a = [1, 2, 3]
+    >>> b = LazyMapList(a, lambda _: _ * 2)
+    >>> len(b)
+    3
+    >>> b[0]
+    2
+    """
+
+    def __init__(self, source_data, map_fn):
+        self._data = [Lazy(lambda: map_fn(_)) for _ in source_data]
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, item):
+        return self._data[item].value
+
+    def __setitem__(self, key, value):
+        self._data[key] = _FakeLazy(value)
+
+    def shuffle(self):
+        np.random.shuffle(self._data)
