@@ -11,6 +11,7 @@ __all__ = [
     'decoder',
     'get_decoder_self_attn_mask',
     'get_pos_encoding',
+    'batch_pos_encoding',
 ]
 
 if TYPE_CHECKING:
@@ -315,7 +316,7 @@ def get_pos_encoding(d_model: 'int', pos: 'int', dtype=np.float32):
     :param dtype: pos encoding dtype, default float32
     :return: pos encoding vector, shape (d_model,)
     """
-    v = np.power(pos / 10000, 2 * np.arange(0, d_model, 1, dtype) / d_model)
+    v = np.power(np.array(pos / 10000, dtype), np.arange(0, 2, 2/d_model, dtype))
     v[0::2] = np.sin(v[0::2])
     v[1::2] = np.cos(v[1::2])
     return v

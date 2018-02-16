@@ -86,3 +86,6 @@ class LazyMapList:
 
     def shuffle(self):
         np.random.shuffle(self._data)
+
+    def random_item(self):
+        return self[np.random.randint(len(self))]
