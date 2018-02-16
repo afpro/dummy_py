@@ -1,5 +1,7 @@
 import numpy as np
 
+from .sequence import Sequence
+
 __all__ = [
     'Lazy',
     'LazyProperty',
@@ -73,19 +75,25 @@ class LazyMapList:
     """
 
     def __init__(self, source_data, map_fn):
-        self._data = [Lazy(lambda: map_fn(_)) for _ in source_data]
+        self._data = Sequence(source_data).map(lambda _: Lazy(lambda: map_fn(_))).to_list()
 
     def __len__(self):
-        return len(self._data)
+        return self.len()
 
     def __getitem__(self, item):
-        return self._data[item].value
+        return self.get(item)
 
     def __setitem__(self, key, value):
         self._data[key] = _FakeLazy(value)
+
+    def len(self):
+        return len(self._data)
+
+    def get(self, index):
+        return self._data[index].value
 
     def shuffle(self):
         np.random.shuffle(self._data)
 
     def random_item(self):
-        return self[np.random.randint(len(self))]
+        return self.get(np.random.randint(self.len()))
