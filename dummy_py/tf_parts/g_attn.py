@@ -176,6 +176,7 @@ def encoder(x: 'tf_input',
     :param n_stack: see paper
     :param d_model: see paper
     :param context: previous step data, from return value
+    :param attn_mask: self attention mask (similar to seq_len)
     :param name: operator name
     :param dtype: data type, default float32
     :return: (encoder result, current context)

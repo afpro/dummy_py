@@ -28,9 +28,9 @@ def load(session: 'tf.Session', saver: 'tf.train.Saver', save_path: 'str'):
 
     latest_checkpoint = tf.train.latest_checkpoint(save_dir, '{}.ckpt'.format(save_name))
     if latest_checkpoint is None:
-        return False
+        return None
     saver.restore(session, latest_checkpoint)
-    return True
+    return latest_checkpoint
 
 
 def save(session: 'tf.Session', saver: 'tf.train.Saver', global_step: 'typing.Union[int, tf.Tensor]', save_path: 'str'):
