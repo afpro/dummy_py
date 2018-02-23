@@ -76,10 +76,12 @@ class Sequence:
         """
         return _seq_of(lambda: filter(fn, self))
 
-    def flat_map(self, fn):
+    def flat_map(self, fn=None):
         def inner():
             for v in self:
-                yield from fn(v)
+                if fn is not None:
+                    v = fn(v)
+                yield from v
 
         return _seq_of(inner)
 
