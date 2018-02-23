@@ -2,6 +2,10 @@
 
 afpro's python library for dummies, include
 
+* python common utils (eg. lazy property)
+* tensorflow utils (eg. load/save, gpu growth config)
+* common models (eg. google attention model)
+
 usage:
 
 ```bash
@@ -14,10 +18,6 @@ pip install dummy_py[tf]
 # install tensorflow-gpu as dependency
 pip install dummy_py[tf_gpu]
 ```
-
-* python common utils (eg. lazy property)
-* tensorflow utils (eg. load/save, gpu growth config)
-* common models (eg. google attention model)
 
 ## `dummy_py.common`
 
