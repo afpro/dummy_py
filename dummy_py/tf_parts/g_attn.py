@@ -165,6 +165,7 @@ def encoder(x: 'tf_input',
             d_model: 'int',
             context: 'Iterable[tf_input]' = None,
             attn_mask: 'tf_input' = None,
+            drop_out: 'Union[tf_input, float]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
     """
@@ -177,11 +178,12 @@ def encoder(x: 'tf_input',
     :param d_model: see paper
     :param context: previous step data, from return value
     :param attn_mask: self attention mask (similar to seq_len)
+    :param drop_out: add dropout to each layer, 1 means no drop, 0 means drop all
     :param name: operator name
     :param dtype: data type, default float32
     :return: (encoder result, current context)
     """
-    with NameScope(name, 'encoder', [x, pos_encoding] + non_or(context, list)):
+    with NameScope(name, 'encoder', [x, pos_encoding, drop_out] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
 
@@ -219,6 +221,8 @@ def encoder(x: 'tf_input',
                               name='stack_{}_sa'.format(i),
                               extra={'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
+                if drop_out is not None:
+                    v = tf.nn.dropout(v, drop_out)
     return v, v_list
 
 
@@ -230,6 +234,7 @@ def decoder(x: 'tf_input',
             d_model: 'int',
             enc_attn_mask: 'tf_input' = None,
             dec_attn_mask: 'tf_input' = None,
+            drop_out: 'Union[tf_input, float]' = None,
             context: 'Iterable[tf_input]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
@@ -243,11 +248,12 @@ def decoder(x: 'tf_input',
     :param context: previous step data, from return value
     :param enc_attn_mask: attn mask for encoder output, for variant length encoder output
     :param dec_attn_mask: attn mask for self attention, see multi_head_attention method
+    :param drop_out: add dropout to each layer, 1 means no drop, 0 means drop all
     :param name: operator name
     :param dtype: data type, default float32
     :return: (decoder result, current context)
     """
-    with NameScope(name, 'decoder', [x, pos_encoding, enc_attn_mask, dec_attn_mask] + non_or(context, list)):
+    with NameScope(name, 'decoder', [x, pos_encoding, enc_attn_mask, dec_attn_mask, drop_out] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
         encoder_output = tf.convert_to_tensor(encoder_output, dtype)
@@ -296,6 +302,8 @@ def decoder(x: 'tf_input',
                               extra={'attn_mask': enc_attn_mask,
                                      'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
+                if drop_out is not None:
+                    v = tf.nn.dropout(v, drop_out)
     return v, v_list
 
 
@@ -317,7 +325,7 @@ def get_pos_encoding(d_model: 'int', pos: 'int', dtype=np.float32):
     :param dtype: pos encoding dtype, default float32
     :return: pos encoding vector, shape (d_model,)
     """
-    v = np.power(np.array(pos / 10000, dtype), np.arange(0, 2, 2/d_model, dtype))
+    v = np.power(np.array(pos / 10000, dtype), np.arange(0, 2, 2 / d_model, dtype))
     v[0::2] = np.sin(v[0::2])
     v[1::2] = np.cos(v[1::2])
     return v
