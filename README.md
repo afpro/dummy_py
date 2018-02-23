@@ -2,7 +2,8 @@
 
 afpro's python library for dummies, include
 
-usage: 
+usage:
+
 ```bash
 # normal
 pip install dummy_py
