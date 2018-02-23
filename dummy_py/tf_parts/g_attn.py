@@ -2,7 +2,7 @@ from typing import Union, Iterable, TYPE_CHECKING
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.layers.normalization import batch_norm
+from tensorflow.python.layers.normalization import batch_normalization
 
 __all__ = [
     'sub_layer',
@@ -47,19 +47,20 @@ def non_or(v, ctor):
     return ctor
 
 
-def sub_layer(fn, x, *other_inputs, name=None, extra=None):
+def sub_layer(fn, x, *other_inputs, name=None, training=False, extra=None):
     """
     :param fn: sub layer body
     :param x: input x
     :param other_inputs: other input, not used as residual
     :param name: operator name
+    :param training: see batch_normalization
     :param extra: extra param for fn
     :return: batch_norm(x + fn(x))
     """
     with NameScope(name, 'sl', [x, *other_inputs]) as scope:
         after_residual = x + fn(x, *other_inputs, **non_or(extra, dict))
         with scope.var_scope():
-            return batch_norm(after_residual)
+            return batch_normalization(after_residual, epsilon=1e-6, training=training)
 
 
 def multi_head_attention(q: 'tf_input',
@@ -163,6 +164,7 @@ def encoder(x: 'tf_input',
             n_head: 'int',
             n_stack: 'int',
             d_model: 'int',
+            training: 'bool' = False,
             context: 'Iterable[tf_input]' = None,
             attn_mask: 'tf_input' = None,
             drop_out: 'Union[tf_input, float]' = None,
@@ -176,6 +178,7 @@ def encoder(x: 'tf_input',
     :param n_head: see paper
     :param n_stack: see paper
     :param d_model: see paper
+    :param training: see batch_normalization
     :param context: previous step data, from return value
     :param attn_mask: self attention mask (similar to seq_len)
     :param drop_out: add dropout to each layer, 1 means no drop, 0 means drop all
@@ -219,8 +222,12 @@ def encoder(x: 'tf_input',
                 self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
                 v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head, attn_mask,
                               name='stack_{}_sa'.format(i),
+                              training=training,
                               extra={'dtype': dtype})
-                v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
+                v = sub_layer(feed_forward, v, d_model,
+                              name='stack_{}_ff'.format(i),
+                              training=training,
+                              extra={'dtype': dtype})
                 if drop_out is not None:
                     v = tf.nn.dropout(v, drop_out)
     return v, v_list
@@ -234,6 +241,7 @@ def decoder(x: 'tf_input',
             d_model: 'int',
             enc_attn_mask: 'tf_input' = None,
             dec_attn_mask: 'tf_input' = None,
+            training: 'bool' = False,
             drop_out: 'Union[tf_input, float]' = None,
             context: 'Iterable[tf_input]' = None,
             name: 'str' = None,
@@ -248,6 +256,7 @@ def decoder(x: 'tf_input',
     :param context: previous step data, from return value
     :param enc_attn_mask: attn mask for encoder output, for variant length encoder output
     :param dec_attn_mask: attn mask for self attention, see multi_head_attention method
+    :param training: see batch_normalization
     :param drop_out: add dropout to each layer, 1 means no drop, 0 means drop all
     :param name: operator name
     :param dtype: data type, default float32
@@ -295,13 +304,18 @@ def decoder(x: 'tf_input',
                 self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
                 v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
                               name='stack_{}_sa'.format(i),
+                              training=training,
                               extra={'attn_mask': dec_attn_mask,
                                      'dtype': dtype})
                 v = sub_layer(multi_head_attention, v, encoder_output, encoder_output, d_model, n_head,
                               name='stack_{}_a'.format(i),
+                              training=training,
                               extra={'attn_mask': enc_attn_mask,
                                      'dtype': dtype})
-                v = sub_layer(feed_forward, v, d_model, name='stack_{}_ff'.format(i), extra={'dtype': dtype})
+                v = sub_layer(feed_forward, v, d_model,
+                              name='stack_{}_ff'.format(i),
+                              training=training,
+                              extra={'dtype': dtype})
                 if drop_out is not None:
                     v = tf.nn.dropout(v, drop_out)
     return v, v_list
