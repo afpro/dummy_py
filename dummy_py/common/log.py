@@ -2,6 +2,8 @@ from time import time
 from typing import Dict, Callable
 from collections import defaultdict
 
+from dummy_py.common import Once
+
 __all__ = [
     'TimeReducedLog',
 ]
@@ -84,11 +86,12 @@ class TimeReducedLog:
         self._items = defaultdict(list)
         self._start_time = None
         # print log
+        print_title = Once(lambda: self.print('after {:.3}s:', cost))
         for name, values in items.items():
             if len(values) == 0:
                 continue
+            print_title()
             reduced = self._reduce_fns.get(name, self._default_reduce_fn)(cost, values)
-            self.print('after {}:', cost)
             self.print('  {}: {}', name, reduced)
 
     @property
