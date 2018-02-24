@@ -1,9 +1,12 @@
-import inspect
+from inspect import getmembers
+from copy import copy
 
 __all__ = [
     'OrmField',
     'OrmObject',
 ]
+
+_orm_dict_field = '_$dummy_py_orm_dict'
 
 
 class OrmField:
@@ -27,7 +30,6 @@ class OrmField:
         self.field_type = field_type
         self.field_name = field_name
         self.field_default_value = field_default_value
-        self.backup_attribute_name = '_$ja_{}'.format(field_name)
         self.strict_assign = strict_assign
         self.is_orm_object = issubclass(field_type, OrmObject)
 
@@ -40,35 +42,55 @@ class OrmField:
     def __delete__(self, instance):
         self.clear(instance)
 
+    def clear(self, instance):
+        if not hasattr(instance, _orm_dict_field):
+            return
+        d = getattr(instance, _orm_dict_field)
+        if self.field_name in d:
+            del d[self.field_name]
+
     def has_been_set(self, instance):
-        return hasattr(instance, self.backup_attribute_name)
+        if not hasattr(instance, _orm_dict_field):
+            return False
+        d = getattr(instance, _orm_dict_field)
+        return self.field_name in d
 
     def get_value(self, instance):
-        return getattr(instance, self.backup_attribute_name, self.field_default_value)
+        if not hasattr(instance, _orm_dict_field):
+            return self.field_default_value
+
+        d = getattr(instance, _orm_dict_field)
+        return d.get(self.field_name, self.field_default_value)
+
+    @staticmethod
+    def inner_dict(instance):
+        if hasattr(instance, _orm_dict_field):
+            d = getattr(instance, _orm_dict_field)
+        else:
+            d = {}
+            setattr(instance, _orm_dict_field, d)
+        return d
 
     def set_value(self, instance, value, ensure_type=False):
         if value is None:
             if self.is_orm_object and self.has_been_set(instance):
-                self.clear(instance)
+                delattr(instance, _orm_dict_field)
             else:
-                setattr(instance, self.backup_attribute_name, value)
+                OrmField.inner_dict(instance)[self.field_name] = value
             return
 
+        d = OrmField.inner_dict(instance)
         if ensure_type or self.strict_assign:
             if self.is_orm_object:
-                if self.has_been_set(instance):
-                    self.get_value(instance).orm_dict = value
-                    return
-
-                v = self.field_type()
+                v = d.get(self.field_name, None)
+                if v is None:
+                    v = self.field_type()
                 v.orm_dict = value
-                value = v
+                d[self.field_name] = v
             else:
-                value = self.field_type(value)
-        setattr(instance, self.backup_attribute_name, value)
-
-    def clear(self, instance):
-        delattr(instance, self.backup_attribute_name)
+                d[self.field_name] = self.field_type(value)
+        else:
+            d[self.field_name] = value
 
 
 class OrmObject:
@@ -96,23 +118,15 @@ class OrmObject:
 
     @property
     def orm_fields(self):
-        for n, t in inspect.getmembers(type(self)):
+        for n, t in getmembers(type(self)):
             if isinstance(t, OrmField):
                 yield n, t
 
     @property
     def orm_dict(self):
-        d = {}
-        for n, t in self.orm_fields:
-            if not t.has_been_set(self):
-                continue
-            v = t.get_value(self)
-            if t.is_orm_object:
-                sub_dict = v.orm_dict
-                if len(sub_dict) > 0:
-                    d[n] = sub_dict
-            else:
-                d[n] = v
+        d = getattr(self, _orm_dict_field, None)
+        if d is not None:
+            d = copy(d)
         return d
 
     @orm_dict.setter
