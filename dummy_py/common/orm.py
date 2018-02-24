@@ -67,7 +67,7 @@ class OrmObject:
     >>>      },
     >>> }
     >>> q.a, q.b.a, q.b.b
-    1000 222 aaa
+    1 2 b
     """
     @property
     def orm_fields(self):
