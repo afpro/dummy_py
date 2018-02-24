@@ -131,8 +131,17 @@ class OrmObject:
 
     @orm_dict.setter
     def orm_dict(self, d):
+        if d is None:
+            delattr(self, _orm_dict_field)
+            return
+
         if not isinstance(d, dict):
             raise RuntimeError('value is not a dict')
+
+        if len(d) == 0:
+            delattr(self, _orm_dict_field)
+            return
+
         for n, t in self.orm_fields:
             if n not in d:
                 t.clear(self)
