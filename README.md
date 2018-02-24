@@ -25,7 +25,8 @@ common python utils
 
 * lazy property
 * io utils
-* simplify map/filter method as Sequence class
+* simplify map/filter method as `Sequence` class
+* simple orm between `OrmObject` and `dict`
 
 ## `dummy_py.tf_utils`
 
