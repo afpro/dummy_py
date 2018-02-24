@@ -10,11 +10,15 @@ class OrmField:
     """
     OrmField, similar to property
     """
-    def __init__(self, field_type, field_name, field_default_value=None):
+
+    def __init__(self, field_type, field_name,
+                 field_default_value=None,
+                 strict_assign=False):
         """
         :param field_type: field type (eg. int)
         :param field_name: field name (name in dict)
         :param field_default_value: default value if not present
+        :param strict_assign: whether check value type while assign
         """
         super().__init__()
         assert isinstance(field_type, type)
@@ -24,6 +28,8 @@ class OrmField:
         self.field_name = field_name
         self.field_default_value = field_default_value
         self.backup_attribute_name = '_$ja_{}'.format(field_name)
+        self.strict_assign = strict_assign
+        self.is_orm_object = issubclass(field_type, OrmObject)
 
     def __get__(self, instance, owner):
         return self.get_value(instance) if instance is not None else self
@@ -40,7 +46,25 @@ class OrmField:
     def get_value(self, instance):
         return getattr(instance, self.backup_attribute_name, self.field_default_value)
 
-    def set_value(self, instance, value):
+    def set_value(self, instance, value, ensure_type=False):
+        if value is None:
+            if self.is_orm_object and self.has_been_set(instance):
+                self.clear(instance)
+            else:
+                setattr(instance, self.backup_attribute_name, value)
+            return
+
+        if ensure_type or self.strict_assign:
+            if self.is_orm_object:
+                if self.has_been_set(instance):
+                    self.get_value(instance).orm_dict = value
+                    return
+
+                v = self.field_type()
+                v.orm_dict = value
+                value = v
+            else:
+                value = self.field_type(value)
         setattr(instance, self.backup_attribute_name, value)
 
     def clear(self, instance):
@@ -69,6 +93,7 @@ class OrmObject:
     >>> q.a, q.b.a, q.b.b
     1 2 b
     """
+
     @property
     def orm_fields(self):
         for n, t in inspect.getmembers(type(self)):
@@ -82,7 +107,7 @@ class OrmObject:
             if not t.has_been_set(self):
                 continue
             v = t.get_value(self)
-            if issubclass(t.field_type, OrmObject):
+            if t.is_orm_object:
                 sub_dict = v.orm_dict
                 if len(sub_dict) > 0:
                     d[n] = sub_dict
@@ -98,12 +123,4 @@ class OrmObject:
             if n not in d:
                 t.clear(self)
                 continue
-            if issubclass(t.field_type, OrmObject):
-                if t.has_been_set(self):
-                    t.get_value(self).orm_dict = d[n]
-                else:
-                    v = t.field_type()
-                    v.orm_dict = d[n]
-                    t.set_value(self, v)
-            else:
-                t.set_value(self, d[n])
+            t.set_value(self, d[n], ensure_type=True)
