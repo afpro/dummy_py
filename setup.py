@@ -13,8 +13,8 @@ setup(
         'numpy',
     ],
     extras_require={
-        "tf": ["tensorflow>=1.4.1"],
-        "tf_gpu": ["tensorflow-gpu>=1.4.1"],
+        'tf': ['tensorflow>=1.4.1'],
+        'tf_gpu': ['tensorflow-gpu>=1.4.1'],
     },
     zip_safe=False,
 )
