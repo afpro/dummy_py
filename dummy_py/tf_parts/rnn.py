@@ -25,6 +25,7 @@ class Base:
         self._dtype = dtype
 
         with name_scope(name, self.type_name) as ns:
+            self._build_ns = ns.scope_name
             self._build(ns)
 
     @property
@@ -42,6 +43,10 @@ class Base:
     @property
     def dtype(self) -> 'tf.DType':
         return self._dtype
+
+    @property
+    def _call_default_ns(self) -> 'str':
+        return '{}call'.format(self._build_ns)
 
     def state_size(self, batch: 'int' = None):
         return batch, self.output_size
@@ -63,7 +68,7 @@ class LSTM(Base):
 
     def __call__(self, x: 'tf_input', h: 'tf_input', c: 'tf_input',
                  name: 'str' = None) -> 'Tuple[tf.Tensor, tf.Tensor]':
-        with name_scope(name, 'lstm_call', [x, h, c, self._w_fioc, self._b_fioc]):
+        with name_scope(name, self._call_default_ns, [x, h, c, self._w_fioc, self._b_fioc]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             c = tf.convert_to_tensor(c, self.dtype)
@@ -87,7 +92,7 @@ class GRU(Base):
                                       shape=(self.output_size * 3,))
 
     def __call__(self, x: 'tf_input', h: 'tf_input', name: 'str' = None) -> 'tf.Tensor':
-        with name_scope(name, 'gru_call', [x, h, self._w_zrh, self._b_zrh]):
+        with name_scope(name, self._call_default_ns, [x, h, self._w_zrh, self._b_zrh]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             t_zrh = tf.matmul(tf.concat((x, h), axis=-1), self._w_zrh) + self._b_zrh
@@ -110,7 +115,7 @@ class MGU(Base):
                                          shape=(self.output_size * 2,))
 
     def __call__(self, x: 'tf_input', h: 'tf_input', name: 'str' = None) -> 'tf.Tensor':
-        with name_scope(name, 'mgu_call', [x, h, self._w_fh, self._b_fh]):
+        with name_scope(name, self._call_default_ns, [x, h, self._w_fh, self._b_fh]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             t_fh = tf.matmul(tf.concat((x, h), axis=-1), self._w_fh) + self._b_fh
