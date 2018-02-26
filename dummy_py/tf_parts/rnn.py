@@ -16,6 +16,12 @@ if TYPE_CHECKING:
     tf_input = Union[np.ndarray, tf.Tensor]
 
 
+def _dense(x, w, b):
+    if isinstance(x, tuple):
+        x = tf.concat(x, axis=-1)
+    return tf.matmul(x, w) + b
+
+
 class Base:
     def __init__(self, input_size: 'int', output_size: 'int',
                  name: 'str' = None,
@@ -72,9 +78,12 @@ class LSTM(Base):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             c = tf.convert_to_tensor(c, self.dtype)
-            t_fioc = tf.matmul(tf.concat((x, h), axis=-1), self._w_fioc) + self._b_fioc
-            ft, it, ot, ct_hat_input = tf.split(t_fioc, 4, axis=-1)
-            ct_hat = tf.tanh(ct_hat_input)
+            t_fioc = _dense((x, h), self._w_fioc, self._b_fioc)
+            ft, it, ot, ct_hat = tf.split(t_fioc, 4, axis=-1)
+            ft = tf.sigmoid(ft)
+            it = tf.sigmoid(it)
+            ot = tf.sigmoid(ot)
+            ct_hat = tf.tanh(ct_hat)
             ct = ft * c + it * ct_hat
             ht = ot * tf.tanh(ct)
         return ht, ct
@@ -86,18 +95,22 @@ class GRU(Base):
         return 'gru'
 
     def _build(self, ns: 'NameScope'):
-        self._w_zrh = tf.get_variable('w_zrh', dtype=self.dtype,
-                                      shape=(self.input_size + self.output_size, self.output_size * 3))
-        self._b_zrh = tf.get_variable('b_zrh', dtype=self.dtype,
-                                      shape=(self.output_size * 3,))
+        self._w_zr = tf.get_variable('w_zr', dtype=self.dtype,
+                                     shape=(self.input_size + self.output_size, self.output_size * 2))
+        self._b_zr = tf.get_variable('b_zr', dtype=self.dtype,
+                                     shape=(self.output_size * 2,))
+        self._w_h = tf.get_variable('w_h', dtype=self.dtype,
+                                    shape=(self.input_size + self.output_size, self.output_size))
+        self._b_h = tf.get_variable('b_h', dtype=self.dtype,
+                                    shape=(self.output_size,))
 
     def __call__(self, x: 'tf_input', h: 'tf_input', name: 'str' = None) -> 'tf.Tensor':
-        with name_scope(name, self._call_default_ns, [x, h, self._w_zrh, self._b_zrh]):
+        with name_scope(name, self._call_default_ns, [x, h, self._w_zr, self._b_zr]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
-            t_zrh = tf.matmul(tf.concat((x, h), axis=-1), self._w_zrh) + self._b_zrh
-            zt, rt, ht_hat_input = tf.split(t_zrh, 3, axis=-1)
-            ht_hat = tf.tanh(ht_hat_input)
+            zt, rt = tf.split(tf.sigmoid(_dense((x, h), self._w_zr, self._b_zr)),
+                              2, axis=-1)
+            ht_hat = tf.tanh(_dense((rt * h, x), self._w_h, self._b_h))
             ht = (1 - zt) * h + zt * ht_hat
         return ht
 
@@ -109,17 +122,20 @@ class MGU(Base):
 
     def _build(self, ns: 'NameScope'):
         with ns.var_scope():
-            self._w_fh = tf.get_variable('w_fh', dtype=self.dtype,
-                                         shape=(self.input_size + self.output_size, self.output_size * 2))
-            self._b_fh = tf.get_variable('b_fh', dtype=self.dtype,
-                                         shape=(self.output_size * 2,))
+            self._w_f = tf.get_variable('w_f', dtype=self.dtype,
+                                        shape=(self.input_size + self.output_size, self.output_size))
+            self._b_f = tf.get_variable('b_f', dtype=self.dtype,
+                                        shape=(self.output_size,))
+            self._w_h = tf.get_variable('w_h', dtype=self.dtype,
+                                        shape=(self.input_size + self.output_size, self.output_size))
+            self._b_h = tf.get_variable('b_h', dtype=self.dtype,
+                                        shape=(self.output_size,))
 
     def __call__(self, x: 'tf_input', h: 'tf_input', name: 'str' = None) -> 'tf.Tensor':
-        with name_scope(name, self._call_default_ns, [x, h, self._w_fh, self._b_fh]):
+        with name_scope(name, self._call_default_ns, [x, h, self._w_f, self._b_f, self._w_h, self._b_h]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
-            t_fh = tf.matmul(tf.concat((x, h), axis=-1), self._w_fh) + self._b_fh
-            ft, ht_hat_input = tf.split(t_fh, 2, axis=-1)
-            ht_hat = tf.tanh(ht_hat_input)
+            ft = tf.sigmoid(_dense((h, x), self._w_f, self._b_f))
+            ht_hat = tf.tanh(_dense((ft * h, x), self._w_h, self._b_h))
             ht = (1 - ft) * h + ft * ht_hat
         return ht
