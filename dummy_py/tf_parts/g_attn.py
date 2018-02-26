@@ -167,7 +167,7 @@ def encoder(x: 'tf_input',
             training: 'bool' = False,
             context: 'Iterable[tf_input]' = None,
             attn_mask: 'tf_input' = None,
-            drop_out: 'Union[tf_input, float]' = None,
+            keep_prob: 'Union[tf_input, float]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
     """
@@ -181,12 +181,12 @@ def encoder(x: 'tf_input',
     :param training: see batch_normalization
     :param context: previous step data, from return value
     :param attn_mask: self attention mask (similar to seq_len)
-    :param drop_out: add dropout to each layer, 1 means no drop, 0 means drop all
+    :param keep_prob: add dropout to each layer, 1 means no drop, 0 means drop all
     :param name: operator name
     :param dtype: data type, default float32
     :return: (encoder result, current context)
     """
-    with NameScope(name, 'encoder', [x, pos_encoding, drop_out] + non_or(context, list)):
+    with NameScope(name, 'encoder', [x, pos_encoding, keep_prob] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
 
@@ -228,8 +228,8 @@ def encoder(x: 'tf_input',
                               name='stack_{}_ff'.format(i),
                               training=training,
                               extra={'dtype': dtype})
-                if drop_out is not None:
-                    v = tf.nn.dropout(v, drop_out)
+                if keep_prob is not None:
+                    v = tf.nn.dropout(v, keep_prob)
     return v, v_list
 
 
@@ -242,7 +242,7 @@ def decoder(x: 'tf_input',
             enc_attn_mask: 'tf_input' = None,
             dec_attn_mask: 'tf_input' = None,
             training: 'bool' = False,
-            drop_out: 'Union[tf_input, float]' = None,
+            keep_prob: 'Union[tf_input, float]' = None,
             context: 'Iterable[tf_input]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
@@ -257,12 +257,12 @@ def decoder(x: 'tf_input',
     :param enc_attn_mask: attn mask for encoder output, for variant length encoder output
     :param dec_attn_mask: attn mask for self attention, see multi_head_attention method
     :param training: see batch_normalization
-    :param drop_out: add dropout to each layer, 1 means no drop, 0 means drop all
+    :param keep_prob: add dropout to each layer, 1 means no drop, 0 means drop all
     :param name: operator name
     :param dtype: data type, default float32
     :return: (decoder result, current context)
     """
-    with NameScope(name, 'decoder', [x, pos_encoding, enc_attn_mask, dec_attn_mask, drop_out] + non_or(context, list)):
+    with NameScope(name, 'decoder', [x, pos_encoding, enc_attn_mask, dec_attn_mask, keep_prob] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
         encoder_output = tf.convert_to_tensor(encoder_output, dtype)
@@ -316,8 +316,8 @@ def decoder(x: 'tf_input',
                               name='stack_{}_ff'.format(i),
                               training=training,
                               extra={'dtype': dtype})
-                if drop_out is not None:
-                    v = tf.nn.dropout(v, drop_out)
+                if keep_prob is not None:
+                    v = tf.nn.dropout(v, keep_prob)
     return v, v_list
 
 
