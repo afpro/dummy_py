@@ -3,6 +3,7 @@ from typing import Union, Iterable, TYPE_CHECKING
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.layers.normalization import batch_normalization
+from dummy_py.tf_utils.name_scope import NameScope
 
 __all__ = [
     'sub_layer',
@@ -18,25 +19,7 @@ if TYPE_CHECKING:
     tf_input = Union[tf.Tensor, np.ndarray]
     var_scope_or_name = Union[tf.VariableScope, str]
 
-
-class NameScope(tf.name_scope):
-    def __init__(self, name, default_name=None, values=None):
-        super().__init__(name,
-                         default_name='g_attn_{}'.format(default_name),
-                         values=[_ for _ in values if _ is not None])
-
-    def __enter__(self):
-        self._cur_name = super().__enter__()  # type: str
-        return self
-
-    @property
-    def scope_name(self):
-        return self._cur_name
-
-    def var_scope(self, scope_or_name: 'var_scope_or_name' = None, **kwargs):
-        if scope_or_name is None:
-            scope_or_name = self._cur_name.strip('/')
-        return tf.variable_scope(scope_or_name, **kwargs)
+name_scope = NameScope.create_name_scope_fn('dummy_py_g_attn_{}')
 
 
 def non_or(v, ctor):
@@ -57,7 +40,7 @@ def sub_layer(fn, x, *other_inputs, name=None, training=False, extra=None):
     :param extra: extra param for fn
     :return: batch_norm(x + fn(x))
     """
-    with NameScope(name, 'sl', [x, *other_inputs]) as scope:
+    with name_scope(name, 'sl', [x, *other_inputs]) as scope:
         after_residual = x + fn(x, *other_inputs, **non_or(extra, dict))
         with scope.var_scope():
             return batch_normalization(after_residual, epsilon=1e-6, training=training)
@@ -82,7 +65,7 @@ def multi_head_attention(q: 'tf_input',
     :param dtype: data dtype, default float32
     :return: see paper
     """
-    with NameScope(name, 'mha', [q, k, v]) as scope:
+    with name_scope(name, 'mha', [q, k, v]) as scope:
         qk_same = q is k
         kv_same = k is v
         q = tf.convert_to_tensor(q, dtype)
@@ -151,7 +134,7 @@ def feed_forward(x: 'tf.Tensor',
     :param dtype: data type, default to input dtype
     :return: max(0, x*w0+b0)*w1 + b1
     """
-    with NameScope(name, 'ff', [x]) as scope:
+    with name_scope(name, 'ff', [x]) as scope:
         x = tf.convert_to_tensor(x, dtype)
         if num_units is None:
             num_units = tf.shape(x)[-1]
@@ -186,7 +169,7 @@ def encoder(x: 'tf_input',
     :param dtype: data type, default float32
     :return: (encoder result, current context)
     """
-    with NameScope(name, 'encoder', [x, pos_encoding, keep_prob] + non_or(context, list)):
+    with name_scope(name, 'encoder', [x, pos_encoding, keep_prob] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
 
@@ -262,7 +245,8 @@ def decoder(x: 'tf_input',
     :param dtype: data type, default float32
     :return: (decoder result, current context)
     """
-    with NameScope(name, 'decoder', [x, pos_encoding, enc_attn_mask, dec_attn_mask, keep_prob] + non_or(context, list)):
+    with name_scope(name, 'decoder',
+                    [x, pos_encoding, enc_attn_mask, dec_attn_mask, keep_prob] + non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
         encoder_output = tf.convert_to_tensor(encoder_output, dtype)
