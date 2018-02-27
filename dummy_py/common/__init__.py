@@ -13,5 +13,4 @@
 # limitations under the License.
 # =========================================================================
 from .lazy import *
-from .once import *
 from .sequence import *

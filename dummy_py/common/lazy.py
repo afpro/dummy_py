@@ -38,11 +38,14 @@ class Lazy:
         self._fn = fn
         self._v = None
 
-    @property
-    def value(self):
+    def calculate(self):
         if self._fn is not None:
             self._v = self._fn()
             self._fn = None
+
+    @property
+    def value(self):
+        self.calculate()
         return self._v
 
 
