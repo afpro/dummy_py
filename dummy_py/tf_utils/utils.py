@@ -1,3 +1,17 @@
+# Copyright 2018, afpro <admin@afpro.net>.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =========================================================================
 import os
 import typing
 
@@ -74,6 +88,7 @@ def tf_session_fn(f, gpu_growth_session=True):
     :param gpu_growth_session: whether or not use gpu growth config
     :return: wrapped method
     """
+
     def inner(*args, **kwargs):
         config = gpu_growth_config() if gpu_growth_session else None
         with tf.Graph().as_default(), tf.Session(config=config) as session:
