@@ -30,6 +30,10 @@ def non_or(v, ctor):
     return ctor
 
 
+def reshape_n_head(v, n_head):
+    return tf.concat(tf.split(v, n_head, axis=-1), axis=0)
+
+
 def sub_layer(fn, x, *other_inputs, name=None, training=False, extra=None):
     """
     :param fn: sub layer body
@@ -107,9 +111,9 @@ def multi_head_attention(q: 'tf_input',
                 k_dense = tf.layers.dense(k, d_model * n_head, use_bias=False, name='k')
                 v_dense = tf.layers.dense(v, d_model * n_head, use_bias=False, name='v')
 
-            q_n_head = tf.concat(tf.split(q_dense, n_head, axis=-1), axis=0)
-            k_n_head = tf.concat(tf.split(k_dense, n_head, axis=-1), axis=0)
-            v_n_head = tf.concat(tf.split(v_dense, n_head, axis=-1), axis=0)
+            q_n_head = reshape_n_head(q_dense, n_head)
+            k_n_head = reshape_n_head(k_dense, n_head)
+            v_n_head = reshape_n_head(v_dense, n_head)
 
             qk_n_head = tf.matmul(q_n_head, k_n_head, transpose_b=True)  # [B * n_head, Tq, Tkv]
             attn_n_head = tf.nn.softmax(qk_n_head / (d_model ** 0.5))
