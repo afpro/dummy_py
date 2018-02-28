@@ -16,9 +16,8 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.layers.normalization import batch_normalization
 
-from ._type_hint import *
-
 from dummy_py.tf_utils.name_scope import NameScope
+from ._type_hint import *
 
 __all__ = [
     'sub_layer',
@@ -103,18 +102,14 @@ def multi_head_attention(q: 'tf_input',
         def control_dependencies():
             yield tf.assert_equal(tf.shape(q_shape), [3], message="query as 3-D tensor")
 
-            if qk_same:
-                return
+            if not qk_same:
+                yield tf.assert_equal(tf.shape(k_shape), [3], message="key as 3-D tensor")
+                yield tf.assert_equal(q_shape[0], k_shape[0], message="query & key has same batch size (dim[0])")
 
-            yield tf.assert_equal(tf.shape(k_shape), [3], message="key as 3-D tensor")
-            yield tf.assert_equal(q_shape[0], k_shape[0], message="query & key has same batch size (dim[0])")
-
-            if kv_same:
-                return
-
-            yield tf.assert_equal(tf.shape(v_shape), [3], message="value as 3-D tensor")
-            yield tf.assert_equal(k_shape[:-1], v_shape[:-1],
-                                  message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
+            if not kv_same:
+                yield tf.assert_equal(tf.shape(v_shape), [3], message="value as 3-D tensor")
+                yield tf.assert_equal(k_shape[:-1], v_shape[:-1],
+                                      message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
 
         with tf.control_dependencies(list(control_dependencies())):
             with scope.var_scope():
