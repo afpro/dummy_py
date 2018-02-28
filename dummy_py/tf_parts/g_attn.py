@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-from typing import Union, Iterable, TYPE_CHECKING
-
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.layers.normalization import batch_normalization
+
+from ._type_hint import *
 
 from dummy_py.tf_utils.name_scope import NameScope
 
@@ -29,10 +29,6 @@ __all__ = [
     'get_pos_encoding',
     'batch_pos_encoding',
 ]
-
-if TYPE_CHECKING:
-    tf_input = Union[tf.Tensor, np.ndarray]
-    var_scope_or_name = Union[tf.VariableScope, str]
 
 name_scope = NameScope.create_name_scope_fn('dummy_py_g_attn_{}')
 
@@ -167,9 +163,9 @@ def encoder(x: 'tf_input',
             n_stack: 'int',
             d_model: 'int',
             training: 'bool' = False,
-            context: 'Iterable[tf_input]' = None,
+            context: 'typing.Iterable[tf_input]' = None,
             attn_mask: 'tf_input' = None,
-            keep_prob: 'Union[tf_input, float]' = None,
+            keep_prob: 'typing.Union[tf_input, float]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
     """
@@ -244,8 +240,8 @@ def decoder(x: 'tf_input',
             enc_attn_mask: 'tf_input' = None,
             dec_attn_mask: 'tf_input' = None,
             training: 'bool' = False,
-            keep_prob: 'Union[tf_input, float]' = None,
-            context: 'Iterable[tf_input]' = None,
+            keep_prob: 'typing.Union[tf_input, float]' = None,
+            context: 'typing.Iterable[tf_input]' = None,
             name: 'str' = None,
             dtype: 'tf.DType' = tf.float32):
     """

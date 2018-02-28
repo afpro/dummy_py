@@ -12,12 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-from typing import TYPE_CHECKING, Union, Tuple
-
-import numpy as np
 import tensorflow as tf
 
 from dummy_py.tf_utils.name_scope import NameScope
+from ._type_hint import *
 
 __all__ = [
     'LSTM',
@@ -26,9 +24,6 @@ __all__ = [
 ]
 
 name_scope = NameScope.create_name_scope_fn('dummy_py_rnn_{}')
-
-if TYPE_CHECKING:
-    tf_input = Union[np.ndarray, tf.Tensor]
 
 
 def _dense(x, w, b):
@@ -88,7 +83,7 @@ class LSTM(Base):
             self._b_fioc = tf.get_variable('b_fioc', shape=(self.output_size * 4,), dtype=self.dtype)
 
     def __call__(self, x: 'tf_input', h: 'tf_input', c: 'tf_input',
-                 name: 'str' = None) -> 'Tuple[tf.Tensor, tf.Tensor]':
+                 name: 'str' = None) -> 'typing.Tuple[tf.Tensor, tf.Tensor]':
         with name_scope(name, self._call_default_ns, [x, h, c, self._w_fioc, self._b_fioc]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
