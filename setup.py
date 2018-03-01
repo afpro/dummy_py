@@ -11,10 +11,11 @@ setup(
     description='afpro\'s python library for dummies',
     install_requires=[
         'numpy',
+        'librosa',
     ],
     extras_require={
-        'tf': ['tensorflow>=1.4.1'],
-        'tf_gpu': ['tensorflow-gpu>=1.4.1'],
+        'tf': ['tensorflow'],
+        'tf_gpu': ['tensorflow-gpu'],
     },
     zip_safe=False,
 )
