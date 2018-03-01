@@ -16,6 +16,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.layers.normalization import batch_normalization
 
+from dummy_py.tf_utils import broadcast_matmul
 from dummy_py.tf_utils.name_scope import NameScope
 from ._type_hint import *
 
@@ -29,10 +30,8 @@ __all__ = [
     'batch_pos_encoding',
 ]
 
-name_scope = NameScope.create_name_scope_fn('dummy_py_g_attn_{}')
 
-
-def non_or(v, ctor):
+def _non_or(v, ctor):
     if v is not None:
         return v
     if callable(ctor):
@@ -40,8 +39,19 @@ def non_or(v, ctor):
     return ctor
 
 
-def reshape_n_head(v, n_head):
-    return tf.concat(tf.split(v, n_head, axis=-1), axis=0)
+def _simple_dense(x, in_size, out_size,
+                  bias=True,
+                  dtype=tf.float32,
+                  name=None):
+    with NameScope(name, 'dense', [x]) as ns:
+        x = broadcast_matmul(x, ns.get_variable('w', shape=(in_size, out_size), dtype=dtype))
+        if bias:
+            x = x + ns.get_variable('b', shape=(out_size,), dtype=dtype)
+        return x
+
+
+def _reshape_n_head(v, n_head, name=None):
+    return tf.concat(tf.split(v, n_head, axis=-1), axis=0, name=name)
 
 
 def sub_layer(fn, x, *other_inputs, name=None, training=False, extra=None):
@@ -54,8 +64,8 @@ def sub_layer(fn, x, *other_inputs, name=None, training=False, extra=None):
     :param extra: extra param for fn
     :return: batch_norm(x + fn(x))
     """
-    with name_scope(name, 'sl', [x, *other_inputs]) as scope:
-        after_residual = x + fn(x, *other_inputs, **non_or(extra, dict))
+    with NameScope(name, 'sl', [x, *other_inputs]) as scope:
+        after_residual = x + fn(x, *other_inputs, **_non_or(extra, dict))
         with scope.var_scope():
             return batch_normalization(after_residual, epsilon=1e-6, training=training)
 
@@ -69,9 +79,9 @@ def multi_head_attention(q: 'tf_input',
                          name: 'str' = None,
                          dtype: 'tf.DType' = tf.float32):
     """
-    :param q: query    [B, Tq,  Dq]
-    :param k: key      [B, Tkv, Dk]
-    :param v: value    [B, Tkv, Dv]
+    :param q: query    [B, Tq,  d_model]
+    :param k: key      [B, Tkv, d_model]
+    :param v: value    [B, Tkv, d_model]
     :param d_model: see paper
     :param n_head: see paper
     :param attn_mask: attention mask, [B, Tq, Tkv] (support broadcast), for avoid decoder forward depends
@@ -79,22 +89,22 @@ def multi_head_attention(q: 'tf_input',
     :param dtype: data dtype, default float32
     :return: see paper
     """
-    with name_scope(name, 'mha', [q, k, v]) as scope:
+    with NameScope(name, 'mha', [q, k, v]):
         qk_same = q is k
         kv_same = k is v
-        q = tf.convert_to_tensor(q, dtype)
+        q = tf.convert_to_tensor(q, dtype, name='q')
         q_shape = tf.shape(q)
         if qk_same:
             k = q
             k_shape = q_shape
         else:
-            k = tf.convert_to_tensor(k, dtype)
+            k = tf.convert_to_tensor(k, dtype, name='k')
             k_shape = tf.shape(k)
         if kv_same:
             v = k
             v_shape = k_shape
         else:
-            v = tf.convert_to_tensor(v, dtype)
+            v = tf.convert_to_tensor(v, dtype, name='v')
             v_shape = tf.shape(v)
         if attn_mask is not None:
             attn_mask = tf.convert_to_tensor(attn_mask, dtype)
@@ -111,27 +121,26 @@ def multi_head_attention(q: 'tf_input',
                 yield tf.assert_equal(k_shape[:-1], v_shape[:-1],
                                       message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
 
-        with tf.control_dependencies(list(control_dependencies())):
-            with scope.var_scope():
-                q_dense = tf.layers.dense(q, d_model * n_head, use_bias=False, name='q')
-                k_dense = tf.layers.dense(k, d_model * n_head, use_bias=False, name='k')
-                v_dense = tf.layers.dense(v, d_model * n_head, use_bias=False, name='v')
+        with tf.control_dependencies(control_dependencies()):
+            q_dense = _simple_dense(q, d_model, d_model * n_head, dtype=dtype, name='qd', bias=False)
+            k_dense = _simple_dense(k, d_model, d_model * n_head, dtype=dtype, name='kd', bias=False)
+            v_dense = _simple_dense(v, d_model, d_model * n_head, dtype=dtype, name='vd', bias=False)
 
-            q_n_head = reshape_n_head(q_dense, n_head)
-            k_n_head = reshape_n_head(k_dense, n_head)
-            v_n_head = reshape_n_head(v_dense, n_head)
+            q_n_head = _reshape_n_head(q_dense, n_head, name='qn')
+            k_n_head = _reshape_n_head(k_dense, n_head, name='kn')
+            v_n_head = _reshape_n_head(v_dense, n_head, name='vn')
 
-            qk_n_head = tf.matmul(q_n_head, k_n_head, transpose_b=True)  # [B * n_head, Tq, Tkv]
-            attn_n_head = tf.nn.softmax(qk_n_head / (d_model ** 0.5))
+            qk_n_head = tf.matmul(q_n_head, k_n_head, transpose_b=True, name='qkn')  # [B * n_head, Tq, Tkv]
+            attn_n_head = tf.nn.softmax(qk_n_head / (d_model ** 0.5), name='an')
             if attn_mask is not None:
                 attn_n_head = tf.split(attn_n_head, n_head, axis=0)
                 attn_n_head = [_ * attn_mask for _ in attn_n_head]
                 attn_n_head = tf.concat(attn_n_head, axis=0)
-                attn_n_head = attn_n_head / (tf.reduce_sum(attn_n_head, axis=-1, keep_dims=True) + 1e-6)
-            attn_v_n_head = tf.matmul(attn_n_head, v_n_head)  # [B * n_head, Tq, d_model]
-            attn_v = tf.concat(tf.split(attn_v_n_head, n_head, axis=0), axis=-1)
-            with scope.var_scope():
-                return tf.layers.dense(attn_v, d_model, use_bias=False, name='o')
+                attn_n_head = tf.truediv(attn_n_head, (tf.reduce_sum(attn_n_head, axis=-1, keep_dims=True) + 1e-6),
+                                         name='anm')
+            attn_v_n_head = tf.matmul(attn_n_head, v_n_head, name='avn')  # [B * n_head, Tq, d_model]
+            attn_v = tf.concat(tf.split(attn_v_n_head, n_head, axis=0), axis=-1, name='av')  # [B, Tq, d_model * n_head]
+            return _simple_dense(attn_v, d_model * n_head, d_model, dtype=dtype, name='o')
 
 
 def feed_forward(x: 'tf.Tensor',
@@ -144,12 +153,14 @@ def feed_forward(x: 'tf.Tensor',
     :param dtype: data type, default to input dtype
     :return: max(0, x*w0+b0)*w1 + b1
     """
-    with name_scope(name, 'ff', [x]) as scope:
-        x = tf.convert_to_tensor(x, dtype)
-        if num_units is None:
-            num_units = tf.shape(x)[-1]
-        with scope.var_scope():
-            return tf.layers.dense(tf.layers.dense(x, num_units, activation=tf.nn.relu), num_units)
+    with NameScope(name, 'ff', [x]) as ns:
+        x = tf.convert_to_tensor(x, dtype, name='x')
+        x = broadcast_matmul(x, ns.get_variable('w1', shape=(num_units, num_units), dtype=dtype))
+        x = x + ns.get_variable('b1', shape=(num_units,), dtype=dtype)
+        x = tf.nn.relu(x)
+        x = broadcast_matmul(x, ns.get_variable('w2', shape=(num_units, num_units), dtype=dtype))
+        x = x + ns.get_variable('b2', shape=(num_units,), dtype=dtype)
+    return x
 
 
 def encoder(x: 'tf_input',
@@ -179,7 +190,7 @@ def encoder(x: 'tf_input',
     :param dtype: data type, default float32
     :return: (encoder result, current context)
     """
-    with name_scope(name, 'encoder', [x, pos_encoding, keep_prob] + non_or(context, list)):
+    with NameScope(name, 'encoder', [x, pos_encoding, keep_prob] + _non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
 
@@ -203,7 +214,7 @@ def encoder(x: 'tf_input',
                                           tf.equal(pe_shape[2], 1)),
                             [pe_dims])
 
-        with tf.control_dependencies(list(control_dependencies())):
+        with tf.control_dependencies(control_dependencies()):
             v = x + pos_encoding
             v_list = []
             if context is not None:
@@ -255,8 +266,8 @@ def decoder(x: 'tf_input',
     :param dtype: data type, default float32
     :return: (decoder result, current context)
     """
-    with name_scope(name, 'decoder',
-                    [x, pos_encoding, enc_attn_mask, dec_attn_mask, keep_prob] + non_or(context, list)):
+    with NameScope(name, 'decoder',
+                   [x, pos_encoding, enc_attn_mask, dec_attn_mask, keep_prob] + _non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
         encoder_output = tf.convert_to_tensor(encoder_output, dtype)
@@ -289,7 +300,7 @@ def decoder(x: 'tf_input',
         if context is not None:
             context = [tf.convert_to_tensor(_, dtype) for _ in context]
             assert len(context) == n_stack
-        with tf.control_dependencies(list(control_dependencies())):
+        with tf.control_dependencies(control_dependencies()):
             v = x + pos_encoding
             v_list = []
             for i in range(n_stack):

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
+from threading import local
 from typing import TYPE_CHECKING, Union
 
 import tensorflow as tf
@@ -29,6 +30,22 @@ class NameScope(tf.name_scope):
     """
     simple tf.name_scope wrapper, for additional variable scope, support None in values
     """
+    _tls = local()
+
+    @classmethod
+    def _stack_list(cls, create=True):
+        v = None
+        try:
+            v = cls._tls.stack
+        except AttributeError:
+            if create:
+                v = []
+                cls._tls.stack = v
+        return v
+
+    @classmethod
+    def _del_stack_list(cls):
+        del cls._tls.stack
 
     def __init__(self, name, default_name=None, values=None):
         super().__init__(name,
@@ -37,7 +54,18 @@ class NameScope(tf.name_scope):
 
     def __enter__(self):
         self._cur_name = super().__enter__()  # type: str
+        self._stack_list().append(self)
         return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        v = self._stack_list(create=False)
+        if v is None or len(v) == 0 or v[-1] is not self:
+            raise RuntimeError('exit with wrong state')
+        if len(v) == 1:
+            self._del_stack_list()
+        else:
+            del v[-1]
+        return super().__exit__(exc_type, exc_val, exc_tb)
 
     @property
     def scope_name(self) -> 'str':
@@ -45,6 +73,13 @@ class NameScope(tf.name_scope):
         :return: current scope name
         """
         return self._cur_name
+
+    @classmethod
+    def current(cls) -> 'NameScope':
+        s = cls._stack_list(create=False)
+        if s is None or len(s) == 0:
+            raise RuntimeError('not within NameScope(...) scope')
+        return s[-1]
 
     def var_scope(self, scope_or_name: 'var_scope_or_name' = None, **kwargs) -> 'tf.variable_scope':
         """
@@ -57,17 +92,7 @@ class NameScope(tf.name_scope):
             scope_or_name = self._cur_name.strip('/')
         return tf.variable_scope(scope_or_name, **kwargs)
 
-    @staticmethod
-    def create_name_scope_fn(default_name_pattern: 'str' = None):
-        """
-        create a function for NameScope creation
-        :param default_name_pattern: for example 'my_prefix_{}'
-        :return: function: (str, str, optional[list]) -> NameScope
-        """
-
-        def inner(name, default_name=None, values=None):
-            if default_name_pattern is not None:
-                default_name = default_name_pattern.format(default_name)
-            return NameScope(name, default_name, values)
-
-        return inner
+    @classmethod
+    def get_variable(cls, name: 'str', **kwargs):
+        with cls.current().var_scope():
+            return tf.get_variable(name, **kwargs)

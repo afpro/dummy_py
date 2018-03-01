@@ -23,8 +23,6 @@ __all__ = [
     'MGU',
 ]
 
-name_scope = NameScope.create_name_scope_fn('dummy_py_rnn_{}')
-
 
 def _dense(x, w, b):
     if isinstance(x, tuple):
@@ -40,7 +38,7 @@ class Base:
         self._output_size = output_size
         self._dtype = dtype
 
-        with name_scope(name, self.type_name) as ns:
+        with NameScope(name, self.type_name) as ns:
             self._build_ns = ns.scope_name
             self._build(ns)
 
@@ -84,7 +82,7 @@ class LSTM(Base):
 
     def __call__(self, x: 'tf_input', h: 'tf_input', c: 'tf_input',
                  name: 'str' = None) -> 'typing.Tuple[tf.Tensor, tf.Tensor]':
-        with name_scope(name, self._call_default_ns, [x, h, c, self._w_fioc, self._b_fioc]):
+        with NameScope(name, self._call_default_ns, [x, h, c, self._w_fioc, self._b_fioc]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             c = tf.convert_to_tensor(c, self.dtype)
@@ -115,7 +113,7 @@ class GRU(Base):
                                     shape=(self.output_size,))
 
     def __call__(self, x: 'tf_input', h: 'tf_input', name: 'str' = None) -> 'tf.Tensor':
-        with name_scope(name, self._call_default_ns, [x, h, self._w_zr, self._b_zr]):
+        with NameScope(name, self._call_default_ns, [x, h, self._w_zr, self._b_zr]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             zt, rt = tf.split(tf.sigmoid(_dense((x, h), self._w_zr, self._b_zr)),
@@ -142,7 +140,7 @@ class MGU(Base):
                                         shape=(self.output_size,))
 
     def __call__(self, x: 'tf_input', h: 'tf_input', name: 'str' = None) -> 'tf.Tensor':
-        with name_scope(name, self._call_default_ns, [x, h, self._w_f, self._b_f, self._w_h, self._b_h]):
+        with NameScope(name, self._call_default_ns, [x, h, self._w_f, self._b_f, self._w_h, self._b_h]):
             x = tf.convert_to_tensor(x, self.dtype)
             h = tf.convert_to_tensor(h, self.dtype)
             ft = tf.sigmoid(_dense((h, x), self._w_f, self._b_f))
