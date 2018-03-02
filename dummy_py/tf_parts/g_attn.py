@@ -223,11 +223,12 @@ def encoder(x: 'tf_input',
             for i in range(n_stack):
                 v_list.append(v)
                 self_attn_q = v
-                self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
-                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head, attn_mask,
+                self_attn_kv = v if context is None else tf.concat((context[i], v), axis=-2)
+                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
                               name='stack_{}_sa'.format(i),
                               training=training,
-                              extra={'dtype': dtype})
+                              extra={'attn_mask': attn_mask,
+                                     'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model,
                               name='stack_{}_ff'.format(i),
                               training=training,
@@ -306,7 +307,7 @@ def decoder(x: 'tf_input',
             for i in range(n_stack):
                 v_list.append(v)
                 self_attn_q = v
-                self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
+                self_attn_kv = v if context is None else tf.concat((context[i], v), axis=-2)
                 v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
                               name='stack_{}_sa'.format(i),
                               training=training,
