@@ -43,11 +43,14 @@ def _non_or(v, ctor):
 def _simple_dense(x, in_size, out_size,
                   bias=True,
                   dtype=tf.float32,
+                  activation:'typing.Callable'=None,
                   name=None):
     with NameScope(name, 'dense', [x]) as ns:
         x = broadcast_matmul(x, ns.get_variable('w', shape=(in_size, out_size), dtype=dtype))
         if bias:
             x = x + ns.get_variable('b', shape=(out_size,), dtype=dtype)
+        if activation is not None:
+            x = activation(x)
         return x
 
 
@@ -121,9 +124,9 @@ def multi_head_attention(q: 'tf_input',
                                       message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
 
         with tf.control_dependencies(control_dependencies()):
-            qh = _simple_dense(q, d_model, d_model * n_head, dtype=dtype)
-            kh = _simple_dense(k, d_model, d_model * n_head, dtype=dtype)
-            vh = _simple_dense(v, d_model, d_model * n_head, dtype=dtype)
+            qh = _simple_dense(q, d_model, d_model * n_head, dtype=dtype, activation=tf.nn.relu)
+            kh = _simple_dense(k, d_model, d_model * n_head, dtype=dtype, activation=tf.nn.relu)
+            vh = _simple_dense(v, d_model, d_model * n_head, dtype=dtype, activation=tf.nn.relu)
             if n_head > 1:
                 qh = tf.concat(tf.split(qh, n_head, axis=-1), axis=0)
                 kh = tf.concat(tf.split(kh, n_head, axis=-1), axis=0)
@@ -142,7 +145,7 @@ def multi_head_attention(q: 'tf_input',
             value = tf.matmul(attn, vh)
             if n_head > 1:
                 value = tf.concat(tf.split(value, n_head, axis=0), axis=-1)
-            value = _simple_dense(value, d_model * n_head, d_model, dtype=dtype, name='output')
+            value = _simple_dense(value, d_model * n_head, d_model, dtype=dtype, activation=tf.nn.relu, name='output')
     return value
 
 
