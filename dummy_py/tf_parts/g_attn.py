@@ -131,6 +131,7 @@ def multi_head_attention(q: 'tf_input',
             attn = tf.matmul(qh, tf.transpose(kh, perm=[0, 2, 1])) / (d_model ** 0.5)
             attn = tf.nn.softmax(attn)
             if attn_mask is not None:
+                attn = attn + 1
                 if n_head > 1:
                     attn = tf.split(attn, n_head, axis=0)
                     attn = [_ * attn_mask for _ in attn]
