@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     var_scope_or_name = Union[tf.VariableScope, str]
 
 
-class NameScope(tf.name_scope):
+class NameScope:
     """
     simple tf.name_scope wrapper, for additional variable scope, support None in values
     """
@@ -48,12 +48,12 @@ class NameScope(tf.name_scope):
         del cls._tls.stack
 
     def __init__(self, name, default_name=None, values=None):
-        super().__init__(name,
-                         default_name=default_name,
-                         values=[_ for _ in values if _ is not None] if values is not None else None)
+        self._ns = tf.name_scope(name,
+                                 default_name=default_name,
+                                 values=[_ for _ in values if _ is not None] if values is not None else None)
 
     def __enter__(self):
-        self._cur_name = super().__enter__()  # type: str
+        self._cur_name = self._ns.__enter__()  # type: str
         self._stack_list().append(self)
         return self
 
@@ -65,7 +65,7 @@ class NameScope(tf.name_scope):
             self._del_stack_list()
         else:
             del v[-1]
-        return super().__exit__(exc_type, exc_val, exc_tb)
+        return self._ns.__exit__(exc_type, exc_val, exc_tb)
 
     @property
     def scope_name(self) -> 'str':
