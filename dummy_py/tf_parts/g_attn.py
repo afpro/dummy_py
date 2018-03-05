@@ -130,17 +130,14 @@ def multi_head_attention(q: 'tf_input',
                 vh = tf.concat(tf.split(vh, n_head, axis=-1), axis=0)
             attn = tf.matmul(qh, tf.transpose(kh, perm=[0, 2, 1])) / (d_model ** 0.5)
             if attn_mask is not None:
-                # 1. make sure min value in logits is zero
                 attn -= tf.reduce_min(attn, axis=-1, keep_dims=True)
-                # 2. multiply by attention mask, masked value is zero (as min value)
+                mask_offset = (attn_mask - 1) * 1e9
                 if n_head > 1:
                     attn = tf.split(attn, n_head, axis=0)
-                    attn = [_ * attn_mask for _ in attn]
+                    attn = [_ * attn_mask + mask_offset for _ in attn]
                     attn = tf.concat(attn, axis=0)
                 else:
-                    attn = attn * attn_mask
-                # 3. minus masked value by -1e9, after softmax, almost zero
-                attn += (attn_mask - 1) * 1e9
+                    attn = attn * attn_mask + mask_offset
             attn = tf.nn.softmax(attn)
             value = tf.matmul(attn, vh)
             if n_head > 1:
