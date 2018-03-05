@@ -129,6 +129,7 @@ def multi_head_attention(q: 'tf_input',
                 kh = tf.concat(tf.split(kh, n_head, axis=-1), axis=0)
                 vh = tf.concat(tf.split(vh, n_head, axis=-1), axis=0)
             attn = tf.matmul(qh, tf.transpose(kh, perm=[0, 2, 1])) / (d_model ** 0.5)
+            attn = tf.nn.softmax(attn)
             if attn_mask is not None:
                 if n_head > 1:
                     attn = tf.split(attn, n_head, axis=0)
@@ -136,6 +137,7 @@ def multi_head_attention(q: 'tf_input',
                     attn = tf.concat(attn, axis=0)
                 else:
                     attn = attn * attn_mask
+                attn = attn / (tf.reduce_sum(attn, axis=-1, keep_dims=True) + 1e-6)
             value = tf.matmul(attn, vh)
             if n_head > 1:
                 value = tf.concat(tf.split(value, n_head, axis=0), axis=-1)
