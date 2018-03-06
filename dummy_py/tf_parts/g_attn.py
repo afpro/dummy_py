@@ -43,7 +43,7 @@ def _non_or(v, ctor):
 def _simple_dense(x, in_size, out_size,
                   bias=True,
                   dtype=tf.float32,
-                  activation:'typing.Callable'=None,
+                  activation: 'typing.Callable' = None,
                   name=None):
     with NameScope(name, 'dense', [x]) as ns:
         x = broadcast_matmul(x, ns.get_variable('w', shape=(in_size, out_size), dtype=dtype))
