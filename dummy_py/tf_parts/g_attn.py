@@ -28,6 +28,7 @@ __all__ = [
     'get_decoder_self_attn_mask',
     'get_pos_encoding',
     'batch_pos_encoding',
+    'seq_len_to_attn_mask',
 ]
 
 
@@ -42,16 +43,15 @@ def _non_or(v, ctor):
 def _simple_dense(x, in_size, out_size,
                   bias=True,
                   dtype=tf.float32,
+                  activation: 'typing.Callable' = None,
                   name=None):
     with NameScope(name, 'dense', [x]) as ns:
         x = broadcast_matmul(x, ns.get_variable('w', shape=(in_size, out_size), dtype=dtype))
         if bias:
             x = x + ns.get_variable('b', shape=(out_size,), dtype=dtype)
+        if activation is not None:
+            x = activation(x)
         return x
-
-
-def _reshape_n_head(v, n_head, name=None):
-    return tf.concat(tf.split(v, n_head, axis=-1), axis=0, name=name)
 
 
 def sub_layer(fn, x, *other_inputs, name=None, training=False, extra=None):
@@ -89,6 +89,8 @@ def multi_head_attention(q: 'tf_input',
     :param dtype: data dtype, default float32
     :return: see paper
     """
+    assert d_model > 0
+    assert n_head > 0
     with NameScope(name, 'mha', [q, k, v]):
         qk_same = q is k
         kv_same = k is v
@@ -122,25 +124,29 @@ def multi_head_attention(q: 'tf_input',
                                       message="key & value has same batch size(dim[0]) and seq-len(dim[1])")
 
         with tf.control_dependencies(control_dependencies()):
-            q_dense = _simple_dense(q, d_model, d_model * n_head, dtype=dtype, name='qd', bias=False)
-            k_dense = _simple_dense(k, d_model, d_model * n_head, dtype=dtype, name='kd', bias=False)
-            v_dense = _simple_dense(v, d_model, d_model * n_head, dtype=dtype, name='vd', bias=False)
-
-            q_n_head = _reshape_n_head(q_dense, n_head, name='qn')
-            k_n_head = _reshape_n_head(k_dense, n_head, name='kn')
-            v_n_head = _reshape_n_head(v_dense, n_head, name='vn')
-
-            qk_n_head = tf.matmul(q_n_head, k_n_head, transpose_b=True, name='qkn')  # [B * n_head, Tq, Tkv]
-            attn_n_head = tf.nn.softmax(qk_n_head / (d_model ** 0.5), name='an')
+            qh = _simple_dense(q, d_model, d_model * n_head, dtype=dtype, activation=tf.nn.relu)
+            kh = _simple_dense(k, d_model, d_model * n_head, dtype=dtype, activation=tf.nn.relu)
+            vh = _simple_dense(v, d_model, d_model * n_head, dtype=dtype, activation=tf.nn.relu)
+            if n_head > 1:
+                qh = tf.concat(tf.split(qh, n_head, axis=-1), axis=0)
+                kh = tf.concat(tf.split(kh, n_head, axis=-1), axis=0)
+                vh = tf.concat(tf.split(vh, n_head, axis=-1), axis=0)
+            attn = tf.matmul(qh, tf.transpose(kh, perm=[0, 2, 1])) / (d_model ** 0.5)
             if attn_mask is not None:
-                attn_n_head = tf.split(attn_n_head, n_head, axis=0)
-                attn_n_head = [_ * attn_mask for _ in attn_n_head]
-                attn_n_head = tf.concat(attn_n_head, axis=0)
-                attn_n_head = tf.truediv(attn_n_head, (tf.reduce_sum(attn_n_head, axis=-1, keep_dims=True) + 1e-6),
-                                         name='anm')
-            attn_v_n_head = tf.matmul(attn_n_head, v_n_head, name='avn')  # [B * n_head, Tq, d_model]
-            attn_v = tf.concat(tf.split(attn_v_n_head, n_head, axis=0), axis=-1, name='av')  # [B, Tq, d_model * n_head]
-            return _simple_dense(attn_v, d_model * n_head, d_model, dtype=dtype, name='o')
+                attn -= tf.reduce_min(attn, axis=-1, keep_dims=True)
+                mask_offset = (attn_mask - 1) * 1e9
+                if n_head > 1:
+                    attn = tf.split(attn, n_head, axis=0)
+                    attn = [_ * attn_mask + mask_offset for _ in attn]
+                    attn = tf.concat(attn, axis=0)
+                else:
+                    attn = attn * attn_mask + mask_offset
+            attn = tf.nn.softmax(attn)
+            value = tf.matmul(attn, vh)
+            if n_head > 1:
+                value = tf.concat(tf.split(value, n_head, axis=0), axis=-1)
+            value = _simple_dense(value, d_model * n_head, d_model, dtype=dtype, activation=tf.nn.relu, name='output')
+    return value
 
 
 def feed_forward(x: 'tf.Tensor',
@@ -190,6 +196,9 @@ def encoder(x: 'tf_input',
     :param dtype: data type, default float32
     :return: (encoder result, current context)
     """
+    assert n_head > 0
+    assert n_stack > 0
+    assert d_model > 0
     with NameScope(name, 'encoder', [x, pos_encoding, keep_prob] + _non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
         pos_encoding = tf.convert_to_tensor(pos_encoding, dtype)
@@ -223,11 +232,12 @@ def encoder(x: 'tf_input',
             for i in range(n_stack):
                 v_list.append(v)
                 self_attn_q = v
-                self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
-                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head, attn_mask,
+                self_attn_kv = v if context is None else tf.concat((context[i], v), axis=-2)
+                v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
                               name='stack_{}_sa'.format(i),
                               training=training,
-                              extra={'dtype': dtype})
+                              extra={'attn_mask': attn_mask,
+                                     'dtype': dtype})
                 v = sub_layer(feed_forward, v, d_model,
                               name='stack_{}_ff'.format(i),
                               training=training,
@@ -266,6 +276,9 @@ def decoder(x: 'tf_input',
     :param dtype: data type, default float32
     :return: (decoder result, current context)
     """
+    assert n_head > 0
+    assert n_stack > 0
+    assert d_model > 0
     with NameScope(name, 'decoder',
                    [x, pos_encoding, enc_attn_mask, dec_attn_mask, keep_prob] + _non_or(context, list)):
         x = tf.convert_to_tensor(x, dtype)
@@ -306,7 +319,7 @@ def decoder(x: 'tf_input',
             for i in range(n_stack):
                 v_list.append(v)
                 self_attn_q = v
-                self_attn_kv = v if context is None else tf.concat((v, context[i]), axis=-1)
+                self_attn_kv = v if context is None else tf.concat((context[i], v), axis=-2)
                 v = sub_layer(multi_head_attention, self_attn_q, self_attn_kv, self_attn_kv, d_model, n_head,
                               name='stack_{}_sa'.format(i),
                               training=training,
@@ -361,3 +374,20 @@ def batch_pos_encoding(seq_len: 'int', d_model: 'int', dtype=np.float32):
     for i in range(seq_len):
         v[0, i, :] = get_pos_encoding(d_model, i, dtype)
     return v
+
+
+def seq_len_to_attn_mask(seq_len: 'typing.Union[typing.List[int], typing.Tuple[int], np.ndarray]',
+                         max_seq_len: 'int' = None,
+                         dtype: 'np.dtype' = np.float32) -> 'np.ndarray':
+    """
+    :param seq_len: sequence length
+    :param max_seq_len: max sequence length, default as max(seq_len)
+    :param dtype: desired mask dtype
+    :return: attention mask
+    """
+    if max_seq_len is None:
+        max_seq_len = max(seq_len)
+    mask = np.zeros(shape=(len(seq_len), max_seq_len, 1), dtype=dtype)
+    for i, n in zip(range(len(seq_len)), seq_len):
+        mask[i, :n, 0].fill(1)
+    return mask
