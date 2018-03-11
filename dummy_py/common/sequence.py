@@ -134,6 +134,20 @@ class Sequence:
 
         return _seq_of(inner)
 
+    def indexed(self, offset: 'int' = 0):
+        """
+        map sequence to indexed value(eg. ['a', 'b', 'c'] to [(0, 'a'), (1, 'b'), (2, 'c')]
+        :param offset: index start offset
+        :return: indexed sequence
+        """
+        def inner():
+            idx = offset
+            for v in self:
+                yield idx, v
+                idx += 1
+
+        return _seq_of(inner)
+
     def for_each(self, fn):
         """
         shortcut for for .. in ...: fn(...)
