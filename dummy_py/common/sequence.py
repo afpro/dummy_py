@@ -26,7 +26,7 @@ class _IterableFactory:
         self._kwargs = kwargs
 
     def __iter__(self):
-        return self._fn(*self._args, **self._kwargs).__iter__()
+        return iter(self._fn(*self._args, **self._kwargs))
 
 
 class _CachedIterable:
@@ -34,7 +34,7 @@ class _CachedIterable:
         self._args = args
         self._kwargs = kwargs
         self._cache = []
-        self._iter = iterable.__iter__()
+        self._iter = iter(iterable)
 
     def __iter__(self):
         for v in self._cache:
@@ -69,7 +69,7 @@ class Sequence:
         self._iter = iterable
 
     def __iter__(self):
-        return self._iter.__iter__()
+        return iter(self._iter)
 
     def cached(self):
         if isinstance(self._iter, (list, tuple)):
