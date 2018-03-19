@@ -86,7 +86,7 @@ def cross_entropy(logits: 'tf.Tensor', labels: 'tf.Tensor', seq_len: 'tf.Tensor'
     :return: cross entropy sum
     """
     with tf.name_scope(name, default_name='cross_entropy', values=[logits, labels, seq_len]):
-        """ return (sum entropy , mean entropy) """
+        """ return sum entropy """
         return CrossEntropyLoop.run(
             logits=logits,
             labels=labels,
