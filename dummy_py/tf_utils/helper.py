@@ -113,6 +113,7 @@ def mask_logits(logits: 'tf.Tensor', seq_len: 'tf.Tensor') -> 'tf.Tensor':
     :return: masked logits
     """
     mask = tf.sequence_mask(seq_len, tf.shape(logits)[1], dtype=logits.dtype)
+    mask = tf.expand_dims(mask, axis=-1)
     logits = logits - tf.reduce_max(logits, axis=-1, keep_dims=True)
     logits = logits * mask
     logits = logits - (1 - mask) * 1e6
