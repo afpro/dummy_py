@@ -24,6 +24,7 @@ __all__ = [
     'embedding',
     'cross_entropy',
     'attention',
+    'mask_logits',
     'softmax',
     'Loop'
 ]
@@ -75,7 +76,7 @@ def embedding(ids, in_size, out_size, name=None, reuse=None):
             name='output')
 
 
-def cross_entropy(logits: 'tf.Tensor', labels: 'tf.Tensor', seq_len: 'tf.Tensor', name=None):
+def cross_entropy(logits: 'tf.Tensor', labels: 'tf.Tensor', seq_len: 'tf.Tensor', name=None) -> 'tf.Tensor':
     """
     calculate cross entropy with sequence length support
 
@@ -83,7 +84,7 @@ def cross_entropy(logits: 'tf.Tensor', labels: 'tf.Tensor', seq_len: 'tf.Tensor'
     :param labels: labels, as [Batch, TimeStep]
     :param seq_len: sequence length, as [Batch]
     :param name: operator name
-    :return: cross entropy sum
+    :return: cross entropy, same shape like logits, pad zero
     """
     with tf.name_scope(name, default_name='cross_entropy', values=[logits, labels, seq_len]):
         """ return sum entropy """
@@ -103,6 +104,19 @@ def attention(query, w, key):
     attn_logits = tf.matmul(tf.matmul(key, w), query, transpose_b=True)
     attn_vec = tf.nn.softmax(attn_logits)
     return attn_vec
+
+
+def mask_logits(logits: 'tf.Tensor', seq_len: 'tf.Tensor') -> 'tf.Tensor':
+    """
+    :param logits:  input logits shape=[Batch, SequenceLen, NClass]
+    :param seq_len: sequence length shape=[Batch]
+    :return: masked logits
+    """
+    mask = tf.sequence_mask(seq_len, tf.shape(logits)[1], dtype=logits.dtype)
+    logits = logits - tf.reduce_max(logits, axis=-1, keep_dims=True)
+    logits = logits * mask
+    logits = logits - (1 - mask) * 1e6
+    return logits
 
 
 def softmax(a: 'np.ndarray'):
@@ -245,7 +259,7 @@ class CrossEntropyLoop(Loop):
     def loop_vars(cls, extra):
         return {
             'i': tf.constant(0, tf.int32),
-            'cent_sum': tf.constant(0, tf.float32),
+            'cent': tf.TensorArray(extra.logits.dtype, extra.batch_size),
         }
 
     @classmethod
@@ -264,32 +278,36 @@ class CrossEntropyLoop(Loop):
             def loop_vars(cls, _extra):
                 return {
                     'i': tf.constant(0, tf.int32),
-                    'cent_sum': tf.constant(0, tf.float32),
+                    'cent': tf.TensorArray(extra.logits.dtype, extra.max_seq_len),
                 }
 
             @classmethod
             def loop_cond(cls, _args, _extra):
-                return _args.i < length
+                return _args.i < extra.max_seq_len
 
             @classmethod
             def loop_body(cls, _args, _extra):
+                cent = tf.cond(
+                    _args.i < length,
+                    true_fn=lambda: log_sum_exp[_args.i] - row[_args.i, label[_args.i]],
+                    false_fn=lambda: tf.constant(0, dtype=extra.logits.dtype))
                 return {
                     'i': _args.i + 1,
-                    'cent_sum': _args.cent_sum + log_sum_exp[_args.i] - row[_args.i, label[_args.i]],
+                    'cent': _args.cent.write(_args.i, cent)
                 }
 
             @classmethod
             def reduce_result(cls, _args, _extra):
-                return _args.cent_sum
+                return _args.cent.stack()
 
         return {
             'i': args.i + 1,
-            'cent_sum': args.cent_sum + InnerLoop.invoke()
+            'cent': args.cent.write(args.i, InnerLoop.invoke())
         }
 
     @classmethod
     def reduce_result(cls, args, extra):
-        return args.cent_sum
+        return args.cent.stack()
 
     @classmethod
     def run(cls, logits, labels, seq_len, batch_size=None):
@@ -298,6 +316,7 @@ class CrossEntropyLoop(Loop):
             'labels': labels,
             'seq_len': seq_len,
             'batch_size': batch_size or tf.shape(seq_len)[0],
+            'max_seq_len': tf.shape(logits)[1],
         })
 
     @classmethod
@@ -311,6 +330,7 @@ class CrossEntropyLoop(Loop):
         with tf.Graph().as_default(), tf.Session() as session:
             s = cls.run(tf.constant(logits), tf.constant(labels), tf.constant(seq_len))
             s = session.run(s)
+        s = np.sum(s)
 
         # with np
         cent_sum = 0
