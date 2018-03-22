@@ -18,7 +18,7 @@ from tensorflow.python.layers.normalization import batch_normalization
 
 from dummy_py.tf_utils import broadcast_matmul
 from dummy_py.tf_utils.name_scope import NameScope
-from ._type_hint import *
+from .type_hint import *
 
 __all__ = [
     'sub_layer',

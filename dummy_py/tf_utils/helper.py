@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========================================================================
-import typing
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.rnn import RNNCell, LSTMCell, MultiRNNCell
+
+from dummy_py.tf_parts.type_hint import *
 
 __all__ = [
     'rnn_cell',
@@ -106,18 +107,22 @@ def attention(query, w, key):
     return attn_vec
 
 
-def mask_logits(logits: 'tf.Tensor', seq_len: 'tf.Tensor') -> 'tf.Tensor':
+def mask_logits(logits: 'tf_input', mask: 'tf_input', dtype: 'tf.DType' = None, name: 'str' = None) -> 'tf.Tensor':
     """
     :param logits:  input logits shape=[Batch, SequenceLen, NClass]
-    :param seq_len: sequence length shape=[Batch]
+    :param mask: mask, same shape as logits (or with broadcast)
+    :param dtype: target dtype
+    :param name: node name
     :return: masked logits
     """
-    mask = tf.sequence_mask(seq_len, tf.shape(logits)[1], dtype=logits.dtype)
-    mask = tf.expand_dims(mask, axis=-1)
-    logits = logits - tf.reduce_max(logits, axis=-1, keep_dims=True)
-    logits = logits * mask
-    logits = logits - (1 - mask) * 1e6
-    return logits
+    with tf.name_scope(name, default_name='mask_logits'):
+        logits = tf.convert_to_tensor(logits, dtype=dtype)
+        mask = tf.convert_to_tensor(mask, dtype=dtype)
+
+        masked = tf.multiply(mask, logits - tf.reduce_max(tf.multiply(logits, mask), axis=-1, keep_dims=True))
+        masked_and_delta = masked - (1 - mask) * 1e6
+
+    return masked_and_delta
 
 
 def softmax(a: 'np.ndarray'):

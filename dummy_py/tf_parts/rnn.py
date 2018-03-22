@@ -15,7 +15,7 @@
 import tensorflow as tf
 
 from dummy_py.tf_utils.name_scope import NameScope
-from ._type_hint import *
+from .type_hint import *
 
 __all__ = [
     'LSTM',
