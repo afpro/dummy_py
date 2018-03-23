@@ -335,11 +335,11 @@ class CrossEntropyLoop(Loop):
         # with tf
         with tf.Graph().as_default(), tf.Session() as session:
             s = cls.run(tf.constant(logits), tf.constant(labels), tf.constant(seq_len))
-            s = session.run(s)
-        s = np.sum(s)
+            s = session.run(s)  # type: np.ndarray
+        print(s)
 
         # with np
-        cent_sum = 0
+        v = np.zeros(shape=s.shape, dtype=s.dtype)
         for batch in range(3):
             for t in range(seq_len[batch]):
                 label = labels[batch, t]
@@ -347,7 +347,8 @@ class CrossEntropyLoop(Loop):
                 e = np.exp(logit)
                 p = e[label] / np.sum(e)
                 cent = - np.log(p)
-                cent_sum += cent
+                v[batch, t] = cent
+        print(v)
 
         # check
-        assert np.abs(s - cent_sum) < 1e-3
+        assert np.abs(np.sum(s) - np.sum(v)) < 1e-3
