@@ -119,10 +119,11 @@ def mask_logits(logits: 'tf_input', mask: 'tf_input', dtype: 'tf.DType' = None, 
         logits = tf.convert_to_tensor(logits, dtype=dtype)
         mask = tf.convert_to_tensor(mask, dtype=dtype)
 
-        masked = tf.multiply(mask, logits - tf.reduce_max(tf.multiply(logits, mask), axis=-1, keep_dims=True))
-        masked_and_delta = masked - (1 - mask) * 1e6
+        shift = tf.reduce_min(tf.multiply(logits, mask), axis=-1, keep_dims=True)
+        masked = tf.multiply(logits - shift, mask)
+        with_offset = masked - (1 - mask) * 1e6
 
-    return masked_and_delta
+    return with_offset
 
 
 def softmax(a: 'np.ndarray'):
