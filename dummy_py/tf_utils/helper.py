@@ -31,7 +31,7 @@ __all__ = [
 ]
 
 
-def rnn_cell(hiddens: 'typing.Iterable[int]', cell_fn: 'typing.Type[RNNCell]' = LSTMCell):
+def rnn_cell(hiddens: 'typing.Union[int, typing.Iterable[int]]', cell_fn: 'typing.Type[RNNCell]' = LSTMCell):
     """
     create multi layer rnn cell
 
@@ -39,6 +39,13 @@ def rnn_cell(hiddens: 'typing.Iterable[int]', cell_fn: 'typing.Type[RNNCell]' = 
     :param cell_fn: rnn cell type or rnn cell factory
     :return:
     """
+    if isinstance(hiddens, int):
+        return cell_fn(hiddens)
+
+    hiddens = list(hiddens)
+    if len(hiddens) == 0:
+        return cell_fn(hiddens[0])
+
     return MultiRNNCell([cell_fn(hidden) for hidden in hiddens])
 
 
