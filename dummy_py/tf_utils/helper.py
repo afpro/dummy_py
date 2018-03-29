@@ -89,7 +89,7 @@ def cross_entropy(logits: 'tf.Tensor', labels: 'tf.Tensor', seq_len: 'tf.Tensor'
     :param labels: labels, as [Batch, TimeStep]
     :param seq_len: sequence length, as [Batch]
     :param name: operator name
-    :return: cross entropy, same shape like logits, pad zero
+    :return: tuple with 1.cross entropy, same shape like logits, pad zero, 2. scalar sum, 3. scalar mean
     """
     with tf.name_scope(name, default_name='cross_entropy', values=[logits, labels, seq_len]):
         """ return sum entropy """
@@ -271,6 +271,8 @@ class CrossEntropyLoop(Loop):
         return {
             'i': tf.constant(0, tf.int32),
             'cent': tf.TensorArray(extra.logits.dtype, extra.batch_size),
+            'sum': tf.constant(0, tf.float32),
+            'count': tf.constant(0, tf.float32),
         }
 
     @classmethod
@@ -290,6 +292,8 @@ class CrossEntropyLoop(Loop):
                 return {
                     'i': tf.constant(0, tf.int32),
                     'cent': tf.TensorArray(extra.logits.dtype, extra.max_seq_len),
+                    'sum': tf.constant(0, tf.float32),
+                    'count': tf.constant(0, tf.float32),
                 }
 
             @classmethod
@@ -298,27 +302,40 @@ class CrossEntropyLoop(Loop):
 
             @classmethod
             def loop_body(cls, _args, _extra):
-                cent = tf.cond(
+                def true_fn():
+                    _cent = log_sum_exp[_args.i] - row[_args.i, label[_args.i]]
+                    return _cent, _args.sum + _cent, _args.count + 1
+
+                def false_fn():
+                    return tf.constant(0, tf.float32), _args.sum, _args.count
+
+                cent, s, c = tf.cond(
                     _args.i < length,
-                    true_fn=lambda: log_sum_exp[_args.i] - row[_args.i, label[_args.i]],
-                    false_fn=lambda: tf.constant(0, dtype=extra.logits.dtype))
+                    true_fn=true_fn,
+                    false_fn=false_fn)
+
                 return {
                     'i': _args.i + 1,
-                    'cent': _args.cent.write(_args.i, cent)
+                    'cent': _args.cent.write(_args.i, cent),
+                    'sum': s,
+                    'count': c,
                 }
 
             @classmethod
             def reduce_result(cls, _args, _extra):
-                return _args.cent.stack()
+                return _args.cent.stack(), _args.sum, _args.count
 
+        inner = InnerLoop.invoke()
         return {
             'i': args.i + 1,
-            'cent': args.cent.write(args.i, InnerLoop.invoke())
+            'cent': args.cent.write(args.i, inner[0]),
+            'sum': args.sum + inner[1],
+            'count': args.count + inner[2],
         }
 
     @classmethod
     def reduce_result(cls, args, extra):
-        return args.cent.stack()
+        return args.cent.stack(), args.sum, args.sum / (args.count + 1e-9)
 
     @classmethod
     def run(cls, logits, labels, seq_len, batch_size=None):
@@ -335,7 +352,7 @@ class CrossEntropyLoop(Loop):
         # random logits
         logits = np.random.rand(3, 4, 10).astype(np.float32)
         labels = np.random.randint(0, 10, size=[3, 4], dtype=np.int32)
-        seq_len = np.random.randint(0, 4, size=[3], dtype=np.int32)
+        seq_len = np.random.randint(2, 5, size=[3], dtype=np.int32)
 
         # with tf
         with tf.Graph().as_default(), tf.Session() as session:
@@ -344,7 +361,7 @@ class CrossEntropyLoop(Loop):
         print(s)
 
         # with np
-        v = np.zeros(shape=s.shape, dtype=s.dtype)
+        v = np.zeros(shape=s[0].shape, dtype=s[1].dtype)
         for batch in range(3):
             for t in range(seq_len[batch]):
                 label = labels[batch, t]
@@ -356,4 +373,4 @@ class CrossEntropyLoop(Loop):
         print(v)
 
         # check
-        assert np.abs(np.sum(s) - np.sum(v)) < 1e-3
+        assert np.abs(np.sum(s[0]) - np.sum(v)) < 1e-3
