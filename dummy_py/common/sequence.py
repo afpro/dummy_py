@@ -140,6 +140,7 @@ class Sequence:
         :param offset: index start offset
         :return: indexed sequence
         """
+
         def inner():
             idx = offset
             for v in self:
@@ -182,3 +183,27 @@ class Sequence:
 
     def max(self, **kwargs):
         return self.to(lambda _: max(_, **kwargs))
+
+    def partition(self, size: 'int',
+                  allow_incomplete: 'bool' = True,
+                  inner_type: 'callable' = None):
+        assert size > 0
+
+        def inner():
+            buf = []
+
+            def part():
+                if inner_type is None:
+                    return buf
+                else:
+                    return inner_type(buf)
+
+            for v in self:
+                buf.append(v)
+                if len(buf) == size:
+                    yield part()
+                    buf = []
+            if len(buf) > 0 and allow_incomplete:
+                yield part()
+
+        return _seq_of(inner)
