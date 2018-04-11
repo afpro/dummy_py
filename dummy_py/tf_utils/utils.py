@@ -37,6 +37,9 @@ def load(session: 'tf.Session', saver: 'tf.train.Saver', save_path: 'str'):
     :param save_path: save path
     :return: true for success load
     """
+    if save_path is None:
+        return None
+
     save_dir = os.path.dirname(save_path)
     save_name = os.path.basename(save_path)
 
@@ -60,6 +63,8 @@ def save(session: 'tf.Session', saver: 'tf.train.Saver', global_step: 'typing.Un
     :param save_path: save path
     :return a string for saved model path
     """
+    if save_path is None:
+        return None
     save_name = os.path.basename(save_path)
     return saver.save(session, save_path,
                       global_step=global_step,
