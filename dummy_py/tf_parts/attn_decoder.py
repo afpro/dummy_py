@@ -5,9 +5,19 @@ from dummy_py.tf_parts.type_hint import *
 from dummy_py.tf_utils import Loop
 
 __all__ = [
+    'state_shape',
     'zero_state',
     'decode',
 ]
+
+
+def state_shape(num_layers, hidden_size, batch_size: 'tf_input' = None):
+    """
+    :param num_layers: decoder layer count
+    :param hidden_size: decoder rnn hidden size (LSTM)
+    :param batch_size: batch size
+    """
+    return batch_size, num_layers, 2, hidden_size
 
 
 def zero_state(num_layers: 'int',
@@ -21,7 +31,7 @@ def zero_state(num_layers: 'int',
     :param dtype: output dtype, default float32
     :return: zero state as tensor
     """
-    return tf.zeros(shape=(batch_size, num_layers, 2, hidden_size), dtype=dtype)
+    return tf.zeros(shape=state_shape(num_layers, hidden_size, batch_size), dtype=dtype)
 
 
 def decode(num_layers: 'int',
@@ -194,13 +204,3 @@ class _LuongGeneralAttnLoop(Loop):
             'b': batch_size,
             'dtype': dtype,
         }, **kwargs)
-
-
-def _test():
-    e = tf.placeholder(tf.float32, (10, 5, 20))
-    es = tf.placeholder(tf.int32, (10,))
-    di = tf.placeholder(tf.float32, (10, 7, 30))
-    ds = tf.placeholder(tf.int32, (10,))
-    si = zero_state(3, 50, 10)
-    o, s = decode(3, 50, e, es, di, ds, si)
-    print(o, s)
