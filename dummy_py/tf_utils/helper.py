@@ -188,6 +188,10 @@ class Loop:
         raise NotImplementedError
 
     @classmethod
+    def shape_invariants(cls, extra):
+        return None
+
+    @classmethod
     def loop_cond(cls, args, extra):
         """
         loop cond, quit loop with return false tensor
@@ -252,10 +256,15 @@ class Loop:
                 args[key] = value
             return [args[_] for _ in loop_var_names]
 
+        si = cls.shape_invariants(extra)
+        if isinstance(si, dict):
+            si = [si[_] for _ in loop_var_names]
+
         result_vars = tf.while_loop(
             cond=mock_cond,
             body=mock_body,
             loop_vars=loop_var_tensors,
+            shape_invariants=si,
             parallel_iterations=1 if debug else 10,
             name=name)
         return cls.reduce_result(DictToProperty.wrap(loop_vars_to_args(result_vars)), extra)
