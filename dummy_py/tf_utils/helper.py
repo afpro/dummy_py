@@ -31,7 +31,7 @@ __all__ = [
 ]
 
 
-def rnn_cell(*hiddens, cell_fn: 'typing.Type[RNNCell]' = LSTMCell):
+def rnn_cell(hiddens, cell_fn: 'typing.Type[RNNCell]' = LSTMCell):
     """
     create multi layer rnn cell
 
