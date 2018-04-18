@@ -30,19 +30,25 @@ class TimerTask:
     timer task for train loop
     """
 
-    def __init__(self, interval: 'float', f: 'typing.Callable', *args, **kwargs):
+    def __init__(self, interval: 'float', as_finalizer: 'bool', f: 'typing.Callable', *args, **kwargs):
         """
         :param interval: in seconds
+        :param as_finalizer: execute on finish
         :param f: target function
         :param args: arguments for f
         :param kwargs: named arguments for f
         """
         self._interval = interval
+        self._as_finalizer = as_finalizer
         self._f = lambda: f(*args, **kwargs)
 
     @property
     def interval(self) -> 'float':
         return self._interval
+
+    @property
+    def as_finalizer(self):
+        return self._as_finalizer
 
     def __call__(self):
         self._f()
@@ -56,11 +62,21 @@ class TimerTaskStatus:
     def __init__(self, task: 'TimerTask', t: 'float'):
         self.task = task
         self.t = t
+        self.just_executed = False
 
     def proceed(self, t: 'float'):
         if self.t + self.task.interval <= t:
             self.task()
+            self.just_executed = True
             self.t = t
+        else:
+            self.just_executed = False
+
+    def finalize(self):
+        if self.task.as_finalizer and not self.just_executed:
+            self.task()
+            self.just_executed = True
+            self.t = time()
 
 
 class TrainStep:
@@ -92,6 +108,9 @@ def train(step: 'TrainStep', timer_tasks: 'typing.Iterable[TimerTask]'):
         now = time()
         for task in tasks:
             task.proceed(now)
+
+    for task in tasks:
+        task.finalize()
 
 
 class BaseTrainStep(TrainStep):
